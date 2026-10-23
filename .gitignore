@@ -23,3 +23,6 @@ data/models/
 .idea/
 .claude/
 *.log
+
+# Fishing-log CSV exports (personal data)
+strikecast_log*.csv

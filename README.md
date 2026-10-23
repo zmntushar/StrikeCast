@@ -41,12 +41,13 @@ No API keys. No subscriptions. Every data source is free and public.
 
 **Requirements:** Python 3.12+ and internet access. Packages install into a local `.venv` folder inside the project (nothing is installed system-wide).
 
-### Windows (PowerShell)
-```powershell
-git clone https://github.com/<you>/strikecast.git
-cd strikecast
-.\run.ps1            # first run creates .venv and installs packages, then opens the dashboard
-```
+### Windows (double-click)
+1. Download or clone the repo.
+2. Double-click **`install.bat`**: it creates a local `.venv` and installs every package (listed in the file).
+3. Double-click **`start.bat`**: the dashboard opens in your browser. Close the window to stop it.
+
+`start.bat` runs the installer automatically if it hasn't been run yet. PowerShell users can also use `.\run.ps1`
+(`.\run.ps1 api` for the REST API, `.\run.ps1 test` for tests).
 
 ### macOS / Linux
 ```bash
