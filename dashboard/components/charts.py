@@ -85,8 +85,12 @@ def forecast_timeline(fc, species: list[str], d: pd.DataFrame) -> go.Figure:
                                          color=np.where(sub["onshore_mph"] > 2, "#fbbf24", "#94a3b8")),
                              hoverinfo="skip"), row=3, col=1)
 
-    fig.add_trace(go.Bar(x=x, y=d["nearshore_wave_ft"], name="Surf (est.)", marker_color="#60a5fa", opacity=0.6,
+    surf_name = "Surf (breaking est.)" if fc.spot.is_open_ocean else "Wind chop (est.)"
+    fig.add_trace(go.Bar(x=x, y=d["nearshore_wave_ft"], name=surf_name, marker_color="#60a5fa", opacity=0.6,
                          hovertemplate="%{y:.1f} ft"), row=4, col=1)
+    if fc.spot.is_open_ocean and "offshore_hs_ft" in d and d["offshore_hs_ft"].notna().any():
+        fig.add_trace(go.Scatter(x=x, y=d["offshore_hs_ft"], name="Offshore Hs", line=dict(color="#93c5fd", width=1.4, dash="dot"),
+                                 hovertemplate="%{y:.1f} ft offshore"), row=4, col=1)
     fig.add_trace(go.Scatter(x=x, y=d["water_temp_f"], name="Water temp", line=dict(color="#fb923c", width=2),
                              hovertemplate="%{y:.1f}°F"), row=4, col=1, secondary_y=True)
     _nights(fig, fc.daily, tz, x.min(), x.max())
@@ -148,7 +152,7 @@ def compare_chart(a, b, label_a: str, label_b: str) -> go.Figure:
     da, db = a.display, b.display
     ha = da.index.tz_convert(a.spot.timezone).hour + da.index.tz_convert(a.spot.timezone).minute / 60
     hb = db.index.tz_convert(b.spot.timezone).hour + db.index.tz_convert(b.spot.timezone).minute / 60
-    panels = [("wind_mph", "Wind (mph)"), ("nearshore_wave_ft", "Nearshore surf (ft, est.)"),
+    panels = [("wind_mph", "Wind (mph)"), ("surf_ft", "Surf / wind chop (ft, est.)"),
               ("buoy_wave_ft", "Offshore buoy waves (ft, measured)"), ("tide_ft", "Tide (ft MLLW)"),
               ("water_temp_f", "Water temp (°F)"), ("bite_striped_bass", "Striped bass Bite Index")]
     fig = make_subplots(rows=3, cols=2, subplot_titles=[p[1] for p in panels], vertical_spacing=0.11, horizontal_spacing=0.07)
@@ -161,3 +165,48 @@ def compare_chart(a, b, label_a: str, label_b: str) -> go.Figure:
     fig.update_xaxes(title=None, tickvals=[0, 6, 12, 18, 23], ticktext=["12am", "6am", "noon", "6pm", "11pm"])
     fig.update_annotations(font=dict(size=12, color="#94a3b8"))
     return _style(fig, 720)
+
+
+def surf_chart(fc, d: pd.DataFrame) -> go.Figure:
+    """Surf estimate with its uncertainty band, offshore Hs, NWS zone range and buoy measurements."""
+    tz = fc.spot.timezone
+    hist = fc.hourly.loc[d.index.min() - pd.Timedelta(hours=24):d.index.max()] if not d.empty else d
+    x = hist.index.tz_convert(tz).tz_localize(None)
+    fig = go.Figure()
+    if "nws_seas_hi_ft" in hist and hist["nws_seas_hi_ft"].notna().any():
+        nws_line = dict(width=1.2, shape="hv", color="rgba(250,204,21,0.75)", dash="dot")
+        fig.add_trace(go.Scatter(x=x, y=hist["nws_seas_hi_ft"], line=nws_line, showlegend=False,
+                                 hovertemplate="NWS up to %{y:.0f} ft<extra></extra>"))
+        fig.add_trace(go.Scatter(x=x, y=hist["nws_seas_lo_ft"], fill="tonexty", fillcolor="rgba(250,204,21,0.08)",
+                                 line=nws_line, name=f"NWS {'seas' if fc.spot.is_open_ocean else 'waves'} range ({fc.spot.marine_zone})",
+                                 hovertemplate="NWS from %{y:.0f} ft<extra></extra>"))
+    if "surf_hi_ft" in hist and hist["surf_hi_ft"].notna().any():
+        fig.add_trace(go.Scatter(x=x, y=hist["surf_hi_ft"], line=dict(width=0), hoverinfo="skip", showlegend=False))
+        fig.add_trace(go.Scatter(x=x, y=hist["surf_lo_ft"], fill="tonexty", fillcolor="rgba(96,165,250,0.22)",
+                                 line=dict(width=0), name="Estimate range", hoverinfo="skip"))
+    lab = "Surf (breaking)" if fc.spot.is_open_ocean else "Wind chop"
+    fig.add_trace(go.Scatter(x=x, y=hist.get("surf_ft"), name=lab, line=dict(color="#60a5fa", width=2.6),
+                             hovertemplate="%{y:.1f} ft<extra>" + lab + "</extra>"))
+    if fc.spot.is_open_ocean and "offshore_hs_ft" in hist:
+        fig.add_trace(go.Scatter(x=x, y=hist["offshore_hs_ft"], name="Offshore Hs (model, buoy-corrected)",
+                                 line=dict(color="#c4b5fd", width=1.6, dash="dot"), hovertemplate="%{y:.1f} ft<extra>offshore</extra>"))
+    if "buoy_wave_ft" in hist and hist["buoy_wave_ft"].notna().any():
+        src = next((s for s in fc.sources if s.feature == "offshore waves (measured)"), None)
+        blab = (f"Buoy {src.station_id} Hs (measured, {src.distance_km:.0f} km away)"
+                if src and src.distance_km is not None else "Buoy Hs (measured)")
+        fig.add_trace(go.Scatter(x=x, y=hist["buoy_wave_ft"], mode="markers", name=blab,
+                                 marker=dict(color="#86efac", size=5), hovertemplate="%{y:.1f} ft<extra>buoy</extra>"))
+    now = pd.Timestamp.now(tz=tz).tz_localize(None)
+    if len(x) and x.min() <= now <= x.max():
+        fig.add_vline(x=now, line=dict(color="#f8fafc", dash="dot", width=1))
+    for i, dd in enumerate(fc.daily):
+        if dd.get("sunset") is None or not len(x):
+            continue
+        a = pd.Timestamp(dd["sunset"]).tz_convert(tz).tz_localize(None)
+        nxt = fc.daily[i + 1].get("sunrise") if i + 1 < len(fc.daily) else None
+        b = pd.Timestamp(nxt).tz_convert(tz).tz_localize(None) if nxt else a + pd.Timedelta(hours=11)
+        a, b = max(a, x.min()), min(b, x.max())
+        if a < b:
+            fig.add_vrect(x0=a, x1=b, fillcolor=NIGHT, line_width=0, layer="below")
+    fig.update_yaxes(title="ft", rangemode="tozero")
+    return _style(fig, 330)

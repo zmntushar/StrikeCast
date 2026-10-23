@@ -15,20 +15,22 @@ from typing import Any, Awaitable, Callable
 import numpy as np
 import pandas as pd
 
-from app.core.config import get_settings, spots_config, stations_config
+from app.core.config import exposure_config, get_settings, spots_config, stations_config
 from app.core.geo import destination
 from app.core.http import HttpClient
 from app.core.logging import get_logger, log_kv
 from app.features.tide_features import current_features, current_proxy_from_tide, tide_features
-from app.features.weather_features import nearshore_waves, pressure_tendency, weather_flags, wind_features
+from app.features import surf as surf_phys
+from app.features.weather_features import clarity_index, pressure_tendency, weather_flags, wind_features
 from app.models import bite as bite_mod
 from app.models.baitfish import bait_scores
 from app.models.common import species_list
 from app.models.feeding import feeding_scores
 from app.models.presence import bait_availability, presence_scores
 from app.models.storms import detect_storms
-from app.providers import geography, lunar, marine, tides, weather
+from app.providers import geography, lunar, marine, nws_marine, tides, weather
 from app.schemas.env import Alert, DataKind, SourceInfo, Spot, TideEvent, Window
+from app.services import surf as surf_svc
 from app.services.stations import distance_to, station_meta
 
 log = get_logger("forecast")
@@ -37,7 +39,8 @@ ProgressCb = Callable[[float, str], None]
 NUMERIC_COLS = ["air_temp_f", "wind_mph", "wind_dir", "gust_mph", "pressure_hpa", "precip_in", "cloud_pct",
                 "visibility_mi", "pop_pct", "wave_ft", "wave_period_s", "wave_dir", "swell_ft", "swell_period_s",
                 "swell_dir", "sst_model_f", "tide_ft", "tide_rate_ft_h", "tide_frac", "hours_since_turn",
-                "hours_to_turn", "tide_range_ft", "current_kt", "current_norm", "water_level_anom_ft", "buoy_wave_ft"]
+                "hours_to_turn", "tide_range_ft", "current_kt", "current_norm", "water_level_anom_ft", "buoy_wave_ft",
+                "windwave_ft", "windwave_period_s", "windwave_dir", "swell_peak_period_s", "wave_peak_period_s"]
 TEXT_COLS = ["short_forecast", "tide_dir", "tide_stage", "tide_stage_tag", "next_turn_type", "current_phase"]
 
 
@@ -99,6 +102,8 @@ class SpotForecast:
     windows: dict[str, list[Window]]
     quality: dict[str, Any]
     missing: list[str] = field(default_factory=list)
+    surf: dict[str, Any] = field(default_factory=dict)        # surf model context / validation summary
+    marine: dict[str, Any] = field(default_factory=dict)      # NWS zone forecast, advisories, surf-zone forecast
     generated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
     @property
@@ -111,6 +116,30 @@ class SpotForecast:
 
     def bite_now(self, species: str) -> float:
         return float(self.now_row().get(f"bite_{species}", np.nan))
+
+    def latest_buoy(self, max_age_h: float = 6.0) -> dict[str, Any] | None:
+        """Most recent measured offshore buoy reading (the current hour often has none yet)."""
+        h = self.hourly
+        if "buoy_wave_ft" not in h:
+            return None
+        upto = min(pd.Timestamp.now(tz="UTC"), self.frame.display_end)
+        s = h["buoy_wave_ft"].loc[:upto].dropna()
+        if self.frame.mode == "historical":
+            s = s.loc[self.frame.display_start:]
+        if s.empty:
+            return None
+        ts = s.index[-1]
+        age = (pd.Timestamp.now(tz="UTC") - ts) / pd.Timedelta(hours=1)
+        if self.frame.mode == "forecast" and age > max_age_h:
+            return None
+        r = h.loc[ts]
+        src = next((x for x in self.sources if x.feature == "offshore waves (measured)"), None)
+        g = lambda k: float(r[k]) if k in r and pd.notna(r[k]) else np.nan  # noqa: E731
+        return {"time": ts, "age_h": round(age, 1), "station": src.station_id if src else None,
+                "station_name": src.station_name if src else None, "distance_km": src.distance_km if src else None,
+                "hs_ft": g("buoy_wave_ft"), "period_s": g("buoy_period_s"), "dir": g("buoy_wave_dir"),
+                "swell_ft": g("buoy_swell_ft"), "swell_s": g("buoy_swell_period_s"), "swell_dir": g("buoy_swell_dir"),
+                "ww_ft": g("buoy_windwave_ft"), "ww_s": g("buoy_windwave_period_s"), "ww_dir": g("buoy_windwave_dir")}
 
     def best_today(self, species: str) -> float:
         d = self.display
@@ -145,7 +174,17 @@ async def _fetch_all(http: HttpClient, spots: list[Spot], frame: TimeFrame, prog
     obs_end = min(frame.end, pd.Timestamp.now(tz="UTC")).date()
 
     wx_points = [(s.lat, s.lon) for s in spots]
-    mar_points = [destination(s.lat, s.lon, s.facing_deg, 1.0) for s in spots]
+    # Ocean spots: offshore point ~12 km out (20-30 m deep), the boundary for the surf
+    # transformation. Sheltered spots: the nearest water cell (SST / model context only).
+    mar_points = [s.boundary_point() if s.is_open_ocean else destination(s.lat, s.lon, s.facing_deg, 1.0) for s in spots]
+    # The same request also returns the model at each wave buoy, for buoy-vs-model anchoring.
+    wave_buoys = sorted({src for s in spots for src in s.wave_sources if src.startswith("ndbc:")})
+    raw["_marine_buoys"] = {}
+    for src in wave_buoys:
+        meta = station_meta(src)
+        if "lat" in meta:
+            raw["_marine_buoys"][src] = len(mar_points)
+            mar_points.append((float(meta["lat"]), float(meta["lon"])))
     if hist:
         a, b = frame.start.date(), frame.end.date()
         tasks.append(("wx", "Open-Meteo weather archive", weather.openmeteo_weather(http, wx_points, start=a, end=b)))
@@ -169,6 +208,27 @@ async def _fetch_all(http: HttpClient, spots: list[Spot], frame: TimeFrame, prog
 
         for sp in spots:
             tasks.append((f"nws:{sp.id}", f"NWS forecast & alerts · {sp.short}", nws_bundle(sp)))
+        mz = sorted({s.marine_zone for s in spots if s.marine_zone})
+        if mz:
+            tasks.append(("cwf", "NWS coastal waters forecast", nws_marine.latest_cwf(http, mz)))
+        if any(s.surf_zone for s in spots):
+            tasks.append(("srf", "NWS surf zone forecast", nws_marine.surf_zone_forecasts(http)))
+    if hist:
+        # archived NWS products for past dates (never today's forecast)
+        if any(s.marine_zone for s in spots):
+            tasks.append(("cwf_arch", "NWS coastal waters forecast (archive)",
+                          nws_marine.archived_products(http, "CWFOKX", (frame.display_start - pd.Timedelta(hours=18)).to_pydatetime(),
+                                                       frame.end.to_pydatetime())))
+        if any(s.surf_zone for s in spots):
+            tasks.append(("srf", "NWS surf zone forecast (archive)",
+                          nws_marine.surf_zone_forecasts(http, (frame.display_start - pd.Timedelta(hours=36)).to_pydatetime(),
+                                                         frame.end.to_pydatetime())))
+        zones = sorted({z for s in spots for z in (s.marine_zone, s.surf_zone) if z})
+        for z in zones:
+            tasks.append((f"vtec:{z}", f"NWS advisories archive · {z}",
+                          # advisories issued days earlier can still be in effect on the target date
+                          nws_marine.advisories(http, z, (frame.display_start - pd.Timedelta(days=10)).date(),
+                                                (frame.display_end + pd.Timedelta(days=1)).date())))
 
     for st in sorted({s.tide_station for s in spots if s.tide_station}):
         name = station_meta(st).get("name", st)
@@ -186,6 +246,16 @@ async def _fetch_all(http: HttpClient, spots: list[Spot], frame: TimeFrame, prog
             tasks.append((src, f"NDBC buoy {sid} · {name}", coro))
         else:
             tasks.append((src, f"NOAA water temperature · {name}", tides.water_temperature(http, sid, obs_begin, obs_end)))
+    for src in wave_buoys:
+        sid = src.split(":", 1)[1]
+        if frame.start.to_pydatetime() > datetime.now(timezone.utc) - pd.Timedelta(days=44):
+            tasks.append((f"spec:{src}", f"NDBC swell / wind-wave split · {sid}",
+                          marine.ndbc_spectral(http, sid, start=frame.start.to_pydatetime(), end=frame.end.to_pydatetime())))
+    expo = exposure_config()
+    for sp in spots:
+        if sp.id not in expo:
+            tasks.append((f"expo:{sp.id}", f"Wave exposure rays · {sp.short}",
+                          geography.exposure_rays(http, sp.lat, sp.lon, sp.boundary_point() if sp.is_open_ocean else None)))
     refs = stations_config().get("water_level_reference", {})
     for st in sorted({refs.get(s.water_body) for s in spots if refs.get(s.water_body)}):
         tasks.append((f"wl:{st}", f"NOAA water level anomaly · {station_meta(st).get('name', st)}",
@@ -226,8 +296,19 @@ def _floatify(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _hourly(obs: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
+    """Hourly means; direction columns (*_dir) use a circular mean so 350 and 10 deg average to 0."""
     keep = [c for c in cols if c in obs]
-    return obs[keep].resample("1h").mean() if keep else pd.DataFrame()
+    if not keep:
+        return pd.DataFrame()
+    lin = [c for c in keep if not c.endswith("_dir")]
+    out = obs[lin].astype(float).resample("1h").mean() if lin else pd.DataFrame(index=obs.resample("1h").mean().index)
+    for c in keep:
+        if c.endswith("_dir"):
+            r = np.radians(obs[c].astype(float))
+            s, co = np.sin(r).resample("1h").mean(), np.cos(r).resample("1h").mean()
+            ang = (np.degrees(np.arctan2(s, co)) + 360) % 360
+            out[c] = ang.where(s.notna() & co.notna())
+    return out
 
 
 def assemble(spot: Spot, frame: TimeFrame, raw: dict[str, Any], spot_pos: int,
@@ -286,36 +367,118 @@ def assemble(spot: Spot, frame: TimeFrame, raw: dict[str, Any], spot_pos: int,
 
     # ---- wave buoy (measured, offshore) ----------------------------------
     picked_wave = False
+    wave_anchor: dict[str, Any] = {}
     for src in spot.wave_sources:
         obs = _ok(raw, src)
         if obs is None:
             continue
         odf, url = obs
         h = _hourly(odf, ["wave_ft", "wave_period_s", "wave_dir"]).reindex(idx)
-        if h["wave_ft"].notna().sum() < 3:
+        if "wave_ft" not in h or h["wave_ft"].notna().sum() < 3:
             continue
         meta = station_meta(src)
         dist, _ = distance_to(spot, meta)
         last_t = odf["wave_ft"].dropna().index.max()
         age = (min(now, frame.end) - last_t).total_seconds() / 3600 if last_t is not None else None
         if frame.mode == "forecast" and age is not None and age > 6:
-            continue
+            continue          # stale: try the next buoy
+        if frame.mode == "historical" and h.loc[frame.display_start:frame.display_end, "wave_ft"].notna().sum() < 3:
+            continue          # no measurements on that date: never substitute other days
         # Offshore buoys are kept separate from the nearshore estimate: they are
-        # an offshore reference (and a sanity check on the model), not the surf.
+        # an offshore reference (and a check on the model), not the surf.
         df["buoy_wave_ft"] = h["wave_ft"]
         df["buoy_period_s"] = h.get("wave_period_s")
         df["buoy_wave_dir"] = h.get("wave_dir")
-        overlap = (h["wave_ft"] - df.get("wave_ft", np.nan)).loc[last_t - pd.Timedelta(hours=12):last_t].dropna()
-        diff = f" Buoy vs spot-model difference (last 12 h): {float(overlap.median()):+.1f} ft." if len(overlap) >= 3 else ""
+        spec = _ok(raw, f"spec:{src}")
+        if spec is not None:
+            sh = _hourly(spec[0], ["swell_ft", "swell_period_s", "swell_dir", "windwave_ft", "windwave_period_s",
+                                   "windwave_dir"]).reindex(idx)
+            for c in sh:
+                df[f"buoy_{c}"] = sh[c]
+        bi = raw.get("_marine_buoys", {}).get(src)
+        mar_all = _ok(raw, "marine")
+        if spot.is_open_ocean and bi is not None and mar_all and bi < len(mar_all) and not mar_all[bi][0].empty:
+            mb = mar_all[bi][0].reindex(idx)
+            wave_anchor = surf_svc.anchor_to_buoy(df["buoy_wave_ft"], mb["wave_ft"],
+                                                  now if frame.mode == "forecast" else frame.end, frame.mode,
+                                                  buoy_dir=df["buoy_wave_dir"], model_dir=mb.get("wave_dir"))
+            wave_anchor.update(buoy=meta["id"], buoy_name=meta.get("name"), distance_km=dist)
+        if wave_anchor.get("applied"):
+            diff = (f" Model at the buoy {wave_anchor['bias_ft']:+.1f} ft vs measured (mean abs. error {wave_anchor['mae_ft']:.1f} ft);"
+                    f" model heights scaled x{wave_anchor['ratio']:.2f}"
+                    + (f", directions rotated {wave_anchor['dir_offset_deg']:+.0f} deg" if wave_anchor.get("dir_offset") is not None else "")
+                    + f", relaxing to the {wave_anchor.get('ratio_longterm', 1):.2f} multi-day bias over ~12 h.")
+        elif wave_anchor.get("reason"):
+            diff = f" Not used to anchor the model: {wave_anchor['reason']}."
+        else:
+            diff = ""
         sources.append(SourceInfo(
-            feature="offshore waves (measured)", provider="NOAA NDBC", product="realtime stdmet",
+            feature="offshore waves (measured)", provider="NOAA NDBC",
+            product="realtime stdmet" + (" + spectral summary (swell / wind-wave split)" if spec is not None else ""),
             station_id=meta["id"], station_name=meta.get("name"), distance_km=dist, kind=DataKind.measured,
             observed_at=last_t.to_pydatetime(), age_hours=round(age, 1) if age is not None else None, url=url,
-            note="Offshore buoy reference — not nearshore surf." + diff))
+            stale=bool(frame.mode == "forecast" and age is not None and age > 3),
+            note="Offshore buoy reference, not nearshore surf." + diff))
         picked_wave = True
         break
     if not picked_wave and spot.wave_sources:
         missing.append("measured waves")
+
+    # ---- NWS marine zone forecast / surf zone forecast / advisories --------
+    marine_info: dict[str, Any] = {"zone": spot.marine_zone, "surf_zone": spot.surf_zone, "advisories": [], "srf": []}
+    if spot.marine_zone:
+        zf, zurl, znote = None, "", ""
+        if frame.mode == "forecast":
+            cwf = _ok(raw, "cwf")
+            if cwf:
+                zf, zurl = cwf[0].get(spot.marine_zone), cwf[1]
+            if zf:
+                df = df.join(nws_marine.zone_hourly(zf, idx))
+                marine_info.update(name=zf.name, issued=zf.issued, expires=zf.expires, headlines=zf.headlines,
+                                   stale=zf.stale(now), periods=[(p.name, p.text) for p in zf.periods[:4]])
+                znote = (" | ".join(zf.headlines) + " | " if zf.headlines else "") + f"issued {zf.issued:%Y-%m-%d %H:%MZ}"
+        else:
+            arch = _ok(raw, "cwf_arch")
+            if arch:
+                try:
+                    zdf, heads, znote = nws_marine.cwf_hourly_from_products(arch, spot.marine_zone, idx)
+                    df = df.join(zdf)
+                    marine_info.update(headlines=heads, archived=True)
+                    zf = True
+                except Exception as exc:  # noqa: BLE001 - archive gaps are normal
+                    znote = str(exc)[:120]
+        if zf:
+            sources.append(SourceInfo(feature="NWS marine zone forecast (seas, wave detail)", provider="NOAA NWS",
+                                      product=f"Coastal Waters Forecast {spot.marine_zone}"
+                                              + (" (archived)" if frame.mode == "historical" else ""),
+                                      station_id=spot.marine_zone, kind=DataKind.predicted, url=zurl,
+                                      stale=bool(marine_info.get("stale")),
+                                      note=znote + (" | EXPIRED product" if marine_info.get("stale") else "")))
+        else:
+            sources.append(SourceInfo(feature="NWS marine zone forecast (seas, wave detail)", provider="NOAA NWS",
+                                      station_id=spot.marine_zone, kind=DataKind.missing, ok=False,
+                                      note=znote or _err(raw, "cwf" if frame.mode == "forecast" else "cwf_arch")))
+    srf = _ok(raw, "srf")
+    if srf and spot.surf_zone:
+        days = {}
+        for sd in srf:
+            if sd.zone != spot.surf_zone:
+                continue
+            if frame.mode == "historical":
+                day_start = pd.Timestamp(sd.day).tz_localize(spot.timezone).tz_convert("UTC")
+                if sd.issued > day_start + pd.Timedelta(hours=8):
+                    continue          # use forecasts issued before that morning only
+            prev = days.get(sd.day)
+            if prev is None or sd.issued > prev.issued:
+                days[sd.day] = sd
+        marine_info["srf"] = [{"day": d, "lo": v.surf_lo_ft, "hi": v.surf_hi_ft, "rip": v.rip_risk, "issued": v.issued}
+                              for d, v in sorted(days.items())]
+    for z in (spot.marine_zone, spot.surf_zone):
+        if not z:
+            continue
+        for a in (_ok(raw, f"vtec:{z}") or []):
+            if a["expire"] >= frame.display_start and a["issue"] <= frame.display_end + pd.Timedelta(hours=1):
+                marine_info["advisories"].append(a)
 
     # ---- water temperature (measured anchor + model trend) ---------------
     picked_temp = None
@@ -441,14 +604,6 @@ def assemble(spot: Spot, frame: TimeFrame, raw: dict[str, Any], spot_pos: int,
             df[c] = None
     if "current_is_proxy" not in df:
         df["current_is_proxy"] = True
-    df = df.join(pressure_tendency(df["pressure_hpa"]))
-    df = df.join(wind_features(df["wind_mph"].astype(float), df["wind_dir"].astype(float), spot.facing_deg))
-    wdir = df["wave_dir"].astype(float).fillna(df.get("swell_dir", pd.Series(np.nan, index=idx)).astype(float))
-    df["nearshore_wave_ft"] = nearshore_waves(df["wave_ft"], wdir, df["onshore_mph"], spot.facing_deg,
-                                              spot.exposure, spot.water_body)
-    df["thunder"] = weather_flags(df)
-    df = df.join(detect_storms(df))
-
     # ---- bathymetry ------------------------------------------------------------
     bathy = None
     grid = _ok(raw, f"bathy:{spot.id}")
@@ -462,7 +617,44 @@ def assemble(spot: Spot, frame: TimeFrame, raw: dict[str, Any], spot_pos: int,
         missing.append("bathymetry")
     bonus = geography.structure_bonus(bathy)
 
+    df = df.join(pressure_tendency(df["pressure_hpa"]))
+    df = df.join(wind_features(df["wind_mph"].astype(float), df["wind_dir"].astype(float), spot.facing_deg))
+
+    # ---- surf (offshore waves -> nearshore, or wind chop in sheltered water) --
+    expo = exposure_config().get(spot.id)
+    if expo is None and _ok(raw, f"expo:{spot.id}") is not None:
+        expo = raw[f"expo:{spot.id}"].to_dict()
+    geom = surf_phys.Geometry.from_dict(expo) if expo else None
+    profile: dict[str, Any] = {}
+    if grid is not None:
+        prof = geography.cross_shore_profile(grid, spot.facing_deg)
+        if prof is not None:
+            profile = geography.profile_features(*prof)
+    mar_src = next((s for s in sources if s.feature.startswith("waves / swell")), None)
+    ctx = surf_svc.SurfContext(spot=spot, geometry=geom, boundary_depth_m=(expo or {}).get("boundary_depth_m"),
+                               profile=profile, anchor=wave_anchor, now=now, mode=frame.mode,
+                               model_stale=bool(mar_src and mar_src.stale))
+    surf_df, surf_meta = surf_svc.compute_surf(df, ctx)
+    df = df.join(surf_df)
+    surf_meta.update(geometry=expo, boundary_point=spot.boundary_point() if spot.is_open_ocean else None)
+    if df.loc[frame.display_start:frame.display_end, "surf_ft"].isna().all():
+        missing.append("surf estimate")
+    sources.append(SourceInfo(
+        feature="nearshore surf (computed)", provider="StrikeCast surf model", kind=DataKind.model,
+        ok=bool(df["surf_ft"].notna().any()),
+        product=("shoaling + refraction + sheltering + depth-limited breaking" if spot.is_open_ocean
+                 else "SPM fetch-limited wind waves (sheltered water)"),
+        note=("Offshore input: " + ", ".join(surf_meta.get("sources_used", [])) if surf_meta.get("sources_used") else "No usable input")
+             + (f" | anchored to NDBC {wave_anchor.get('buoy')} (height x{wave_anchor.get('ratio')}"
+                + (f", direction {wave_anchor.get('dir_offset_deg'):+.0f} deg" if wave_anchor.get("dir_offset") is not None else "")
+                + ")" if wave_anchor.get("applied") else "")
+             + (" | geometry from NOAA DEM ray-cast" if geom is not None else " | no exposure geometry")))
+    df["thunder"] = weather_flags(df)
+    df = df.join(detect_storms(df))
+    df["clarity_index"] = clarity_index(df, sheltered=not spot.is_open_ocean)
+
     # ---- scores ----------------------------------------------------------------
+    df = df.copy()   # de-fragment after the many feature joins
     bait = bait_scores(df, spot)
     df = df.join(bait)
     windows: dict[str, list[Window]] = {}
@@ -480,7 +672,8 @@ def assemble(spot: Spot, frame: TimeFrame, raw: dict[str, Any], spot_pos: int,
 
     quality = data_quality(sources, missing, frame.mode)
     return SpotForecast(spot=spot, frame=frame, hourly=df, sources=sources, alerts=alerts, bathy=bathy,
-                        tide_events=tide_events, daily=daily, windows=windows, quality=quality, missing=missing)
+                        tide_events=tide_events, daily=daily, windows=windows, quality=quality, missing=missing,
+                        surf=surf_meta, marine=marine_info)
 
 
 def data_quality(sources: list[SourceInfo], missing: list[str], mode: str) -> dict[str, Any]:

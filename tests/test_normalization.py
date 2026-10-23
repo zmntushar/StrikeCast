@@ -3,7 +3,7 @@ import pandas as pd
 import pytest
 
 from app.core.geo import angle_diff, compass, compass_to_deg, haversine_km, wind_components
-from app.features.weather_features import nearshore_waves, pressure_tendency
+from app.features.weather_features import pressure_tendency
 from app.providers.marine import parse_ndbc_stdmet
 from app.providers.weather import _parse_nws_speed
 
@@ -54,14 +54,3 @@ def test_pressure_tendency():
     t = pressure_tendency(p)
     assert t["pressure_tend_3h"].iloc[-1] == 3 and t["pressure_tend_24h"].iloc[-1] == 24
     assert np.isnan(t["pressure_tend_24h"].iloc[0])
-
-
-def test_nearshore_waves_direction_and_exposure():
-    ix = pd.date_range("2026-10-23", periods=3, freq="1h", tz="UTC")
-    off = pd.Series([4.0, 4.0, 4.0], index=ix)
-    head_on = nearshore_waves(off, pd.Series([180.0] * 3, index=ix), pd.Series([0.0] * 3, index=ix), 180, 1.0, "ocean")
-    away = nearshore_waves(off, pd.Series([0.0] * 3, index=ix), pd.Series([0.0] * 3, index=ix), 180, 1.0, "ocean")
-    sheltered = nearshore_waves(off, pd.Series([180.0] * 3, index=ix), pd.Series([0.0] * 3, index=ix), 180, 0.1, "bay")
-    assert head_on.iloc[0] == pytest.approx(4.0)
-    assert away.iloc[0] == pytest.approx(0.0, abs=1e-9)
-    assert sheltered.iloc[0] == pytest.approx(0.4)

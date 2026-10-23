@@ -1,0 +1,94 @@
+000
+FZUS51 KOKX 231326
+CWFOKX
+
+Coastal Waters Forecast
+National Weather Service New York NY
+926 AM EDT Fri Oct 23 2026
+
+Montauk Point NY to Sandy Hook NJ out 60 nm offshore, including
+Long Island Sound, the Long Island Bays, and New York Harbor
+
+ANZ300-240215-
+926 AM EDT Fri Oct 23 2026
+
+.Synopsis for the Long Island and Connecticut coastal waters...
+High pres will build from the N through Sunday before shifting
+farther S early next week. A cold front will move across late Mon
+into Mon night, followed again by high pres into the middle of
+next week. 
+
+$$
+
+ANZ353-240215-
+Fire Island Inlet NY to Moriches Inlet NY out 20 NM-
+926 AM EDT Fri Oct 23 2026
+
+...SMALL CRAFT ADVISORY IN EFFECT UNTIL 8 PM EDT THIS EVENING...
+
+.TODAY...NE winds 15 to 20 kt, diminishing to 5 to 10 kt. Seas
+4 to 6 ft, occasionally to 8 ft. Wave Detail: E 6 ft at
+9 seconds. 
+.TONIGHT...NE winds 5 to 10 kt. Seas 3 to 4 ft, occasionally to
+5 ft. Wave Detail: E 4 ft at 10 seconds. 
+.SAT...NE winds 5 to 10 kt, becoming NW in the afternoon. Seas
+3 to 4 ft, occasionally to 5 ft. Wave Detail: E 4 ft at
+10 seconds. 
+.SAT NIGHT...NW winds around 5 kt. Seas 2 to 3 ft. Wave Detail: E
+3 ft at 12 seconds. 
+.SUN...NW winds around 5 kt. Seas 2 to 3 ft. Wave Detail: E 3 ft
+at 13 seconds. 
+.SUN NIGHT...W winds 5 to 10 kt. Seas 2 to 3 ft. 
+.MON...W winds 5 to 10 kt. Seas 2 to 3 ft. 
+.MON NIGHT...NW winds 15 to 20 kt. Seas 2 to 3 ft.
+.TUE...NE winds 15 to 20 kt. Seas 3 to 4 ft, occasionally to
+5 ft. 
+.TUE NIGHT...NE winds 10 to 15 kt. Seas 3 to 4 ft, occasionally
+to 5 ft.  
+
+$$
+
+ANZ335-240215-
+Long Island Sound West of New Haven CT/Port Jefferson NY-
+926 AM EDT Fri Oct 23 2026
+
+.TODAY...NE winds 10 to 15 kt with gusts up to 20 kt, diminishing
+to 5 to 10 kt this afternoon. Seas 1 to 2 ft. Wave Detail: NE 2 ft
+at 4 seconds. 
+.TONIGHT...NE winds 5 to 10 kt. Seas 1 ft or less. Wave Detail:
+NE 1 ft at 3 seconds. 
+.SAT...N winds around 5 kt, becoming W around 5 kt in the
+afternoon. Seas 1 ft or less. Wave Detail: NE 1 ft at 2 seconds. 
+.SAT NIGHT...NW winds around 5 kt. Seas 1 ft or less. 
+.SUN...NW winds around 5 kt, becoming W in the afternoon. Seas
+1 ft or less. 
+.SUN NIGHT...SW winds around 5 kt. Seas 1 ft or less. 
+.MON...W winds around 5 kt. Seas 1 ft or less. 
+.MON NIGHT...NW winds 10 to 15 kt. Seas 1 ft or less. 
+.TUE...N winds 10 to 15 kt with gusts up to 20 kt. Seas 1 to
+2 ft. 
+.TUE NIGHT...NE winds 5 to 10 kt. Seas 1 ft or less.  
+
+$$
+
+ANZ345-240215-
+South Shore Bays from Jones Inlet through Shinnecock Bay-
+926 AM EDT Fri Oct 23 2026
+
+.TODAY...NE winds 10 to 15 kt, diminishing to 5 to 10 kt late.
+Waves 1 to 2 ft late this morning, then 1 ft or less.
+.TONIGHT...NE winds around 5 kt. Waves 1 ft or less. 
+.SAT...N winds around 5 kt, becoming NW in the afternoon. Waves
+1 ft or less. 
+.SAT NIGHT...NW winds around 5 kt. Waves 1 ft or less. 
+.SUN...NW winds around 5 kt, becoming W in the afternoon. Waves
+1 ft or less. 
+.SUN NIGHT...SW winds around 5 kt. Waves 1 ft or less. 
+.MON...W winds 5 to 10 kt. Waves 1 ft or less. 
+.MON NIGHT...NW winds 10 to 15 kt with gusts up to 20 kt. Waves
+1 ft or less. 
+.TUE...N winds 10 to 15 kt with gusts up to 20 kt. Waves 1 ft or
+less. 
+.TUE NIGHT...NE winds 5 to 10 kt. Waves 1 ft or less.
+
+$$

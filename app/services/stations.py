@@ -93,7 +93,7 @@ async def build_custom_spot(http: HttpClient, lat: float, lon: float, environmen
     spot = Spot(
         id=f"custom_{lat:.4f}_{lon:.4f}", name=label, short=label[:14], lat=lat, lon=lon,
         environment=environment, water_body="ocean" if environment in ("beach", "jetty", "inlet") else "bay",
-        facing_deg=facing, exposure=1.0 if environment == "beach" else 0.6, structure=[environment],
+        facing_deg=facing, structure=[environment],
         tide_station=str(tide[0][1]["id"]) if tide else None,
         current_station=str(cur[0][1]["id"]) if cur else None, current_is_proxy=not cur or cur[0][0] > 5,
         temp_sources=[f"coops:{s['id']}" for _, s in wt] + [f"ndbc:{b['id']}" for _, b in nb],

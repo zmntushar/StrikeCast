@@ -14,7 +14,9 @@ from app.models.common import col, ramp_band, species_meta
 from app.models.storms import storm_multiplier
 from app.schemas.env import Spot
 
-FACTORS = ["current", "tide_stage", "light", "wind", "waves", "pressure", "bait", "temp_trend"]
+FACTORS = ["current", "tide_stage", "light", "wind", "waves", "pressure", "bait", "temp_trend", "clarity"]
+# Surf drives feeding at open beaches (white water, dislodged prey); bay or Sound chop much less so.
+WAVE_WEIGHT_BY_EXPOSURE = {"open_ocean": 1.0, "sound": 0.6, "sheltered_bay": 0.3}
 
 
 def current_factor(cn: np.ndarray, lo: float, hi: float, slack: float) -> np.ndarray:
@@ -75,6 +77,14 @@ def temp_trend_factor(trend_3d: np.ndarray, doy: np.ndarray) -> np.ndarray:
     return np.where(np.isnan(tr), np.nan, np.clip(0.55 + 0.45 * np.clip(sign * tr / 4, -1, 1), 0, 1))
 
 
+def clarity_factor(clarity: np.ndarray, opt: list[float]) -> np.ndarray:
+    """1 inside the species' preferred clarity range, easing to 0.4 at 0.4 outside it."""
+    c = np.asarray(clarity, dtype=float)
+    lo, hi = opt
+    dist = np.where(c < lo, lo - c, np.where(c > hi, c - hi, 0.0))
+    return np.where(np.isnan(c), np.nan, 1 - 0.6 * np.clip(dist / 0.4, 0, 1))
+
+
 def feeding_scores(df: pd.DataFrame, spot: Spot, species: str, bait_av: np.ndarray | None) -> pd.DataFrame:
     cfg = species_meta(species)
     doy = df.index.tz_convert(spot.timezone).day_of_year.to_numpy()
@@ -94,12 +104,15 @@ def feeding_scores(df: pd.DataFrame, spot: Spot, species: str, bait_av: np.ndarr
                                     cfg["pressure"]["rising_penalty"]),
         "bait": bait_av if bait_av is not None else np.full(len(df), np.nan),
         "temp_trend": temp_trend_factor(col(df, "water_temp_trend_3d"), doy),
+        "clarity": clarity_factor(col(df, "clarity_index"), cfg.get("clarity_opt", [0.0, 0.6])),
     }
     w = cfg["feeding_weights"]
     num = np.zeros(len(df))
     den = np.zeros(len(df))
     for name in FACTORS:
         wt = w.get(name, 0)
+        if name == "waves":
+            wt *= WAVE_WEIGHT_BY_EXPOSURE.get(spot.exposure_class, 1.0)
         if wt <= 0:
             continue
         val = f[name]

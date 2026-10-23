@@ -1,4 +1,7 @@
-"""Derived weather/ocean features: pressure tendency, onshore wind, nearshore surf."""
+"""Derived weather features: pressure tendency, onshore wind, thunder flags.
+
+Nearshore surf lives in app/features/surf.py and app/services/surf.py.
+"""
 from __future__ import annotations
 
 import numpy as np
@@ -22,25 +25,24 @@ def wind_features(wind_mph: pd.Series, wind_dir: pd.Series, facing_deg: float) -
                         index=wind_mph.index)
 
 
-def nearshore_waves(offshore_ft: pd.Series, wave_dir: pd.Series, onshore_mph: pd.Series,
-                    facing_deg: float, exposure: float, water_body: str) -> pd.Series:
-    """Heuristic nearshore wave height (ft).
+def clarity_index(df: pd.DataFrame, sheltered: bool) -> pd.Series:
+    """Water-clarity PROXY, 0 (clear) .. 1 (very dirty) — a heuristic, not a measurement.
 
-    Model waves ~1 km off the spot are scaled by the spot's exposure and by how
-    squarely they arrive relative to the shore normal (cos²(θ/2): a simple stand-in
-    for refraction and directional spreading). Sheltered bay
-    and Sound spots also get a fetch-limited local wind chop estimate.
+    Suspended sand and runoff come mainly from (a) the last day of surf stirring
+    the bottom, (b) the last two days of rain, (c) storms. Bays and the Sound use
+    a lower surf scale because their wind chop is smaller.
     """
-    off = offshore_ft.astype(float)
-    deg_off = np.abs(((wave_dir.astype(float) - facing_deg + 180) % 360) - 180)
-    # Smooth exposure curve: 1.0 head-on, 0.75 at 60°, 0.5 at 90° (swell running along the
-    # beach still wraps in via refraction + directional spread), ~0.07 at 150°, 0 heading away.
-    alignment = np.cos(np.radians(deg_off) / 2) ** 2
-    swell_part = off * exposure * np.where(np.isfinite(deg_off), alignment, 0.6)
-    on = onshore_mph.astype(float).clip(lower=0)
-    chop_coef = {"sound": 0.012, "bay": 0.006}.get(water_body, 0.0)
-    chop = chop_coef * on ** 1.6
-    return pd.Series(np.fmax(swell_part.to_numpy(), chop.to_numpy()), index=off.index)
+    surf = df.get("surf_ft", pd.Series(np.nan, index=df.index)).astype(float)
+    surf24 = surf.rolling(24, min_periods=6).mean()
+    lo, hi = (0.5, 2.5) if sheltered else (1.0, 6.0)
+    s = ((surf24 - lo) / (hi - lo)).clip(0, 1)
+    rain = df.get("precip_in", pd.Series(0.0, index=df.index)).astype(float).fillna(0).rolling(48, min_periods=1).sum()
+    r = (rain / 1.0).clip(0, 1)
+    phase = df.get("storm_phase", pd.Series("none", index=df.index)).astype(str)
+    since = df.get("hours_since_storm", pd.Series(np.nan, index=df.index)).astype(float)
+    st = np.where(phase == "during", 0.3, np.where((phase == "post") & (since.fillna(99) < 24), 0.2, 0.0))
+    out = (0.6 * s.fillna(0) + 0.3 * r + st).clip(0, 1)
+    return out.where(surf24.notna() | (rain > 0))
 
 
 def weather_flags(df: pd.DataFrame) -> pd.Series:

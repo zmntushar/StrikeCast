@@ -50,7 +50,15 @@ class Spot(BaseModel):
     environment: str
     water_body: str
     facing_deg: float
-    exposure: float = 1.0
+    # Deprecated: the old 0-1 surf multiplier. Kept so older configs still load;
+    # surf is now computed from geometry (configs/exposure.yaml) and wave physics.
+    exposure: float | None = None
+    # open_ocean | sheltered_bay | sound. Derived from water_body when omitted.
+    wave_exposure: str | None = None
+    # Offshore wave-model point [lat, lon] (default: 12 km out along facing_deg).
+    wave_point: list[float] | None = None
+    marine_zone: str | None = None     # NWS coastal-waters zone, e.g. ANZ353
+    surf_zone: str | None = None       # NWS surf-zone forecast zone, e.g. NYZ080
     bottom: str = "sand"
     structure: list[str] = Field(default_factory=list)
     tide_station: str | None = None
@@ -62,6 +70,23 @@ class Spot(BaseModel):
     notes: str = ""
     timezone: str = "America/New_York"
     custom: bool = False
+
+    @property
+    def exposure_class(self) -> str:
+        if self.wave_exposure:
+            return self.wave_exposure
+        return {"ocean": "open_ocean", "bay": "sheltered_bay", "sound": "sound"}.get(self.water_body, "sheltered_bay")
+
+    @property
+    def is_open_ocean(self) -> bool:
+        return self.exposure_class == "open_ocean"
+
+    def boundary_point(self, dist_km: float = 12.0) -> tuple[float, float]:
+        """Where offshore wave conditions are taken for the nearshore transformation."""
+        if self.wave_point:
+            return float(self.wave_point[0]), float(self.wave_point[1])
+        from app.core.geo import destination
+        return destination(self.lat, self.lon, self.facing_deg, dist_km)
 
 
 class SourceInfo(BaseModel):
@@ -140,3 +165,5 @@ class ApiSpotForecast(BaseModel):
     sources: list[SourceInfo]
     hourly: list[dict[str, Any]]
     bathymetry: dict[str, Any] | None = None
+    surf: dict[str, Any] | None = None       # exposure class, buoy anchoring, geometry summary, latest buoy
+    marine: dict[str, Any] | None = None     # NWS zone forecast headlines / advisories / surf-zone forecast

@@ -47,6 +47,9 @@ def _oz(oz: float) -> str:
 
 
 def water_clarity(row: Any) -> str:
+    ci = _num(row.get("clarity_index"), float("nan"))
+    if not math.isnan(ci):
+        return "clear" if ci < 0.25 else "moderate" if ci < 0.55 else "stained"
     surf = _num(row.get("nearshore_wave_ft"), 1.0)
     phase = str(row.get("storm_phase") or "none")
     since = _num(row.get("hours_since_storm"), 99)

@@ -35,8 +35,9 @@ from dashboard.components import charts  # noqa: E402
 from dashboard.components.maps import build_map  # noqa: E402
 from dashboard.components.styles import CSS  # noqa: E402
 from app.models.tackle import recommend  # noqa: E402
-from dashboard.components.ui import (chip, esc, fmt, hour_label, isnum, kind_badge, legend_html,  # noqa: E402
-                                     species_popover, tide_text, wind_text, window_text)
+from dashboard.components.ui import (chip, esc, fmt, hint, hour_label, isnum, kind_badge,  # noqa: E402
+                                     legend_html, species_popover, surf_block, surf_headline, surf_source_text,
+                                     tide_text, wave_txt, wind_text, window_text)
 
 st.markdown(CSS, unsafe_allow_html=True)
 
@@ -279,10 +280,10 @@ def spot_card(fc) -> str:
       <div class="sc-sub">Bite Index now · peak in selected window · hover a fish for details &amp; tackle</div>
       <div class="sc-cond">
         <div><span>Water</span> {fmt(row.get('water_temp_f'), '{:.1f}')}°F</div>
-        <div><span>Surf</span> ~{fmt(row.get('nearshore_wave_ft'), '{:.1f}')} ft</div>
         <div><span>Wind</span> {esc(wind_text(row))}</div>
         <div><span>Tide</span> {esc(tide_text(row))}</div>
-      </div>{win}
+        <div><span>Light</span> {esc(row.get('light_phase') or '—')}</div>
+      </div>{surf_block(fc, row)}{win}
     </div>"""
 
 
@@ -486,15 +487,16 @@ with tabs[3]:
     fc = VIS[csel]
     now = fc.now_row()
     hist = fc.hourly.loc[:pd.Timestamp.now(tz="UTC")]
-    buoy_last = hist["buoy_wave_ft"].dropna() if "buoy_wave_ft" in hist else pd.Series(dtype=float)
     nxt = [e for e in fc.tide_events if pd.Timestamp(e.time) > pd.Timestamp.now(tz="UTC")][:4]
     tz = fc.spot.timezone
     ph = fc.daily[0] if fc.daily else {}
     cards = [
         ("💧 Water temperature", f"{fmt(now.get('water_temp_f'), '{:.1f}')}°F", f"{now.get('water_temp_kind')} · 3-day trend {fmt(now.get('water_temp_trend_3d'), '{:+.1f}')}°F"),
         ("💨 Wind", f"{fmt(now.get('wind_mph'))} mph {compass(now.get('wind_dir'))}", f"gusts {fmt(now.get('gust_mph'))} mph · {wind_text(now).split('· ')[-1]}"),
-        ("🌊 Surf (est.)", f"~{fmt(now.get('nearshore_wave_ft'), '{:.1f}')} ft", f"spot model {fmt(now.get('wave_ft'), '{:.1f}')} ft @ {fmt(now.get('wave_period_s'))} s"
-                                                                                + (f" · offshore buoy {buoy_last.iloc[-1]:.1f} ft (measured)" if len(buoy_last) else "")),
+        ("🌊 " + ("Wind chop" if not fc.spot.is_open_ocean else "Surf (breaking)"),
+         (f"{now.get('surf_ft'):.1f} ft" if isnum(now.get('surf_ft')) else "unavailable"),
+         (f"range {fmt(now.get('surf_lo_ft'), '{:.1f}')}–{fmt(now.get('surf_hi_ft'), '{:.1f}')} ft · {now.get('surf_confidence') or '—'} confidence · {now.get('surf_trend') or ''}"
+          if isnum(now.get('surf_ft')) else "no usable wave or wind data")),
         ("🌀 Pressure", f"{fmt(now.get('pressure_hpa'))} hPa", f"{fmt(now.get('pressure_tend_3h'), '{:+.1f}')} hPa / 3 h · {fmt(now.get('pressure_hpa') * 0.02953 if isnum(now.get('pressure_hpa')) else None, '{:.2f}')} inHg"),
         ("↕️ Tide", esc(now.get("tide_stage") or "—"), " · ".join(f"{'High' if e.type == 'H' else 'Low'} {hour_label(pd.Timestamp(e.time).tz_convert(tz))} ({e.height_ft:.1f} ft)" for e in nxt[:2])),
         ("➰ Current", f"{fmt(abs(now.get('current_kt')) if isnum(now.get('current_kt')) else None, '{:.1f}')} kt {now.get('current_phase') or ''}",
@@ -510,6 +512,78 @@ with tabs[3]:
         for col, (t, v, n) in zip(cols, cards[i:i + 5]):
             col.markdown(f'<div class="sc-card sc-kpi" style="margin-bottom:.7rem"><div class="lab">{t}</div><div class="val" style="font-size:1.25rem">{v}</div><div class="note">{esc(n)}</div></div>',
                          unsafe_allow_html=True)
+
+    st.markdown("##### 🌊 Surf & waves")
+    tzs = fc.spot.timezone
+    b = fc.latest_buoy()
+    a = fc.surf.get("anchor") or {}
+    geo = fc.surf.get("geometry") or {}
+    cA, cB = st.columns([1.1, 1])
+    with cA:
+        if fc.spot.is_open_ocean:
+            open_dirs = [compass(dd) for dd, f in zip(geo.get("dirs_deg", []), geo.get("fetch_km", []))
+                         if f >= 10 and abs((dd - fc.spot.facing_deg + 180) % 360 - 180) < 90]
+            setup = (f"Open-ocean beach facing {compass(fc.spot.facing_deg)} ({fc.spot.facing_deg:.0f}°). "
+                     f"Unobstructed wave approach from: {', '.join(dict.fromkeys(open_dirs)) or '—'}. "
+                     f"Offshore conditions taken {fmt(fc.surf.get('boundary_depth_m'), '{:.0f}')} m deep, ~12 km out.")
+        else:
+            setup = (f"Sheltered {'Sound' if fc.spot.exposure_class == 'sound' else 'bay'} shoreline facing "
+                     f"{compass(fc.spot.facing_deg)} — ocean swell cannot reach it; surf is local wind chop.")
+        rows_s = [
+            ("Surf" if fc.spot.is_open_ocean else "Wind chop", "chop" if not fc.spot.is_open_ocean else "surf", surf_headline(now)),
+            ("Confidence", "confidence", f"{now.get('surf_confidence') or '—'} (±{fmt((now.get('surf_uncertainty') or np.nan) * 100)}%)"),
+            ("Trend", "trend", str(now.get("surf_trend") or "—")),
+            ("Safety", "safety", str(now.get("surf_safety") or "—")),
+        ]
+        if fc.spot.is_open_ocean:
+            rows_s += [
+                ("Offshore waves", "offshore", wave_txt(now.get("offshore_hs_ft"), now.get("offshore_tp_s"), now.get("offshore_dir"))),
+                ("Swell", "swell", wave_txt(now.get("bc_swell_ft"), now.get("bc_swell_tp_s"), now.get("bc_swell_dir"))
+                 + (f" + {wave_txt(now.get('bc_swell2_ft'), now.get('bc_swell2_tp_s'), now.get('bc_swell2_dir'))}"
+                    if isnum(now.get("bc_swell2_ft")) and now.get("bc_swell2_ft") >= 0.5 else "")),
+                ("Wind waves", "windwave", wave_txt(now.get("bc_windwave_ft"), now.get("bc_windwave_tp_s"), now.get("bc_windwave_dir"))),
+                ("Breakers", "Breaker type from the Iribarren number (beach slope vs wave steepness) and where waves break at this tide.",
+                 f"{now.get('breaker_type') or '—'} · breaking {now.get('break_zone') or '—'} · in ~{fmt(now.get('breaker_depth_ft'), '{:.1f}')} ft of water"),
+                ("Wave power", "Deep-water wave energy flux per metre of wave crest (kW/m) — a measure of how much punch the sea carries.",
+                 f"{fmt(now.get('wave_power_kw_m'), '{:.1f}')} kW/m"),
+            ]
+            if isnum(now.get("inlet_wave_ft")):
+                rows_s.append(("Inlet mouth", "Waves steepen and grow where the ebb current runs against them (wave-current interaction).",
+                               f"~{now.get('inlet_wave_ft'):.1f} ft (ebb factor ×{fmt(now.get('inlet_ebb_factor'), '{:.2f}')})"
+                               + (" · current blocking — steep breaking waves" if now.get("inlet_blocking") else "")))
+        if b:
+            rows_s.append((f"Buoy {b['station']}", "buoy",
+                           f"{wave_txt(b['hs_ft'], b['period_s'], b['dir'])} at {hour_label(pd.Timestamp(b['time']).tz_convert(tzs))}"
+                           + (f" · swell {wave_txt(b['swell_ft'], b['swell_s'], b['swell_dir'])} · wind waves {wave_txt(b['ww_ft'], b['ww_s'], b['ww_dir'])}"
+                              if isnum(b.get('swell_ft')) else "")))
+        rows_s.append(("Source", "source", surf_source_text(fc, now.get("surf_source"))))
+        if a.get("applied"):
+            rows_s.append(("Buoy check", "Wave model vs the measured buoy at the buoy's location over the last days.",
+                           f"model {a.get('bias_ft', 0):+.1f} ft vs NDBC {a.get('buoy')} (MAE {a.get('mae_ft')} ft); heights ×{a.get('ratio')}"
+                           + (f", direction {a.get('dir_offset_deg'):+.0f}°" if a.get("dir_offset") is not None else "")))
+        elif a.get("reason"):
+            rows_s.append(("Buoy check", "Wave model vs the measured buoy.", a["reason"]))
+        if now.get("surf_flags"):
+            rows_s.append(("Validation", "Automatic checks that flag suspicious inputs; they never change the estimate.", now["surf_flags"]))
+        body = "".join(f"<tr><td style='color:#94a3b8;padding:.15rem .6rem .15rem 0'>{hint(k, tip)}</td><td>{esc(v)}</td></tr>"
+                       for k, tip, v in rows_s)
+        st.markdown(f'<div class="sc-card"><div class="sc-sub" style="margin-bottom:.4rem">{esc(setup)}</div>'
+                    f'<table style="font-size:.84rem;border-collapse:collapse">{body}</table></div>', unsafe_allow_html=True)
+    with cB:
+        mi = fc.marine
+        heads = mi.get("headlines") or []
+        per = "".join(f"<li><b>{esc(n)}</b>: {esc(tx[:220])}</li>" for n, tx in (mi.get("periods") or [])[:3])
+        srf = "".join(f"<li>{d['day']:%a %b %d}: surf {d['lo']:.0f}–{d['hi']:.0f} ft · rip risk {esc(d['rip'] or '—')}</li>"
+                      for d in mi.get("srf", [])[:3])
+        st.markdown(f"""<div class="sc-card"><h4>NWS marine forecast · {esc(fc.spot.marine_zone or '—')}</h4>
+          <div class="sc-sub">{esc(mi.get('name', ''))}{(' · issued ' + pd.Timestamp(mi['issued']).tz_convert(tzs).strftime('%a %I:%M %p')) if mi.get('issued') is not None else ''}
+          {' · <b style="color:#fca5a5">EXPIRED</b>' if mi.get('stale') else ''}</div>
+          {''.join(f'<div class="sc-alert" style="margin:.4rem 0">⚠️ {esc(h)}</div>' for h in heads)}
+          <ul style="font-size:.8rem;padding-left:1.1rem;margin:.3rem 0">{per or '<li>Zone forecast unavailable</li>'}</ul>
+          {('<div class="sc-sub" style="margin-top:.4rem"><b>NWS surf zone forecast ' + esc(fc.spot.surf_zone or '') + '</b></div><ul style="font-size:.8rem;padding-left:1.1rem">' + srf + '</ul>') if srf else
+           ('<div class="sc-sub">NWS surf zone forecasts (independent surf check) are issued in the beach season only.</div>' if fc.spot.surf_zone else '')}
+          </div>""", unsafe_allow_html=True)
+    st.plotly_chart(charts.surf_chart(fc, view(fc)), use_container_width=True, config={"displayModeBar": False})
 
     st.markdown("##### 📚 Data sources for this spot")
     srows = []
@@ -677,7 +751,8 @@ with tabs[6]:
 st.markdown("""<div class="sc-foot">
 <b>Data:</b> NOAA CO-OPS tides & currents · NOAA NDBC buoys · NOAA/NWS forecasts & alerts · NOAA NCEI CUDEM bathymetry ·
 NOAA ENC charts · <a href="https://open-meteo.com">Open-Meteo</a> (CC BY 4.0) weather & marine models · OpenStreetMap / Nominatim ·
-OpenSeaMap · Zippopotam.us · USGS imagery · PyEphem astronomy. All free; no API keys.<br>
+OpenSeaMap · Zippopotam.us · USGS imagery · PyEphem astronomy · Iowa Environmental Mesonet (archived NWS products).
+All free; no API keys.<br>
 <b>Disclaimer:</b> StrikeCast indices are environmental suitability scores, not guarantees or calibrated catch probabilities.
 Conditions on jetties and in inlets can be dangerous — always check the official NWS forecast and use judgment.
 </div>""", unsafe_allow_html=True)

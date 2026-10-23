@@ -1,0 +1,214 @@
+
+664 
+FZUS51 KOKX 102311
+SRFOKX
+
+Surf Zone Forecast for New York
+National Weather Service New York NY
+711 PM EDT Mon Aug 10 2026
+
+NYZ075-110815-
+Kings (Brooklyn)-
+Including the beaches of Coney Island Beach and Manhattan Beach
+711 PM EDT Mon Aug 10 2026
+
+.TUESDAY...
+Rip Current Risk............Low. 
+Surf Height.................1 to 2 feet. 
+Thunderstorm Potential......None. 
+UV Index**..................High. 
+Surf Temperature............Upper 70s. 
+Weather.....................Mostly sunny. 
+High Temperature............Upper 80s. 
+Winds.......................West around 10 mph.
+Tides...
+   Coney Island.............High at 7:09 AM.
+                            Low at 1:01 PM. 
+Sunrise.....................6:02 AM. 
+Sunset......................8:00 PM. 
+
+.WEDNESDAY...
+Rip Current Risk............Low. 
+Surf Height.................1 to 2 feet. 
+Thunderstorm Potential......None. 
+Weather.....................Mostly sunny. 
+High Temperature............Mid 80s. 
+Winds.......................Northeast around 5 mph, becoming 
+                            southeast in the afternoon.
+Tides...
+   Coney Island.............High at 8:02 AM.
+                            Low at 1:56 PM. 
+Sunrise.....................6:03 AM. 
+Sunset......................7:59 PM. 
+
+.THURSDAY...Mostly sunny. A chance of showers and a slight chance of
+thunderstorms. Highs in the mid 80s. Southwest winds around 10 mph. 
+.FRIDAY...Mostly sunny. A slight chance of showers. Highs in the
+lower 80s. Northwest winds around 10 mph. 
+.SATURDAY...Sunny. Highs in the upper 70s. North winds around 10 mph.
+
+&&
+
+Rip Current Risk Categories:
+
+* Low Risk - Implies that wind and wave conditions do not support an
+enhanced rip current risk. However, life-threatening rip currents are
+always possible in the vicinity of groins, jetties, reefs, and piers.
+
+* Moderate Risk - Life-threatening rip currents are possible in the
+surf zone. Anyone planning to enter the surf should check with local
+beach patrols first. Be sure to swim within sight of a life guard,
+and never alone or at night.
+
+* High Risk - Life-threatening rip currents are likely for all people
+entering the surf zone. Anyone visiting the beaches should stay out
+of the surf.
+
+If you enter the surf zone, always have a flotation device with you
+and swim near a lifeguard. If caught in a rip current, relax and
+float, and do not swim against the current. If able, swim in a
+direction following the shoreline. If unable to escape, face the
+shore and yell or wave for help.
+
+For UV Index definitions plus more on rip current and beach safety,
+see: https://www.weather.gov/beach/okx
+
+$$
+
+NYZ179-110815-
+Southern Nassau-
+Including the beaches of Atlantic Beach, Long Beach, Lido Beach, 
+and Jones Beach
+711 PM EDT Mon Aug 10 2026
+
+.TUESDAY...
+Rip Current Risk............Low. 
+Surf Height.................1 to 2 feet. 
+Thunderstorm Potential......None. 
+UV Index**..................High. 
+Surf Temperature............Mid 70s. 
+Weather.....................Mostly sunny. 
+High Temperature............Mid 80s. 
+Max Heat Index..............Mid 90s. 
+Winds.......................West around 10 mph.
+Tides...
+   Jones Inlet..............High at 6:53 AM.
+                            Low at 12:53 PM. 
+Sunrise.....................6:01 AM. 
+Sunset......................7:59 PM. 
+
+.WEDNESDAY...
+Rip Current Risk............Low. 
+Surf Height.................1 to 2 feet. 
+Thunderstorm Potential......None. 
+Weather.....................Partly sunny until 2 PM, then sunny. 
+High Temperature............Lower 80s. 
+Winds.......................Northeast around 5 mph, becoming 
+                            south in the afternoon.
+Tides...
+   Jones Inlet..............High at 7:46 AM.
+                            Low at 1:48 PM. 
+Sunrise.....................6:02 AM. 
+Sunset......................7:58 PM. 
+
+.THURSDAY...Mostly sunny. A chance of showers and a slight chance of
+thunderstorms. Highs in the lower 80s. Southwest winds around 10 mph.
+.FRIDAY...Mostly sunny. A slight chance of showers. Highs around 80.
+Northwest winds around 10 mph. 
+.SATURDAY...Sunny. Highs in the upper 70s. North winds around 10 mph.
+
+&&
+
+Rip Current Risk Categories:
+
+* Low Risk - Implies that wind and wave conditions do not support an
+enhanced rip current risk. However, life-threatening rip currents are
+always possible in the vicinity of groins, jetties, reefs, and piers.
+
+* Moderate Risk - Life-threatening rip currents are possible in the
+surf zone. Anyone planning to enter the surf should check with local
+beach patrols first. Be sure to swim within sight of a life guard,
+and never alone or at night.
+
+* High Risk - Life-threatening rip currents are likely for all people
+entering the surf zone. Anyone visiting the beaches should stay out
+of the surf.
+
+If you enter the surf zone, always have a flotation device with you
+and swim near a lifeguard. If caught in a rip current, relax and
+float, and do not swim against the current. If able, swim in a
+direction following the shoreline. If unable to escape, face the
+shore and yell or wave for help.
+
+For UV Index definitions plus more on rip current and beach safety,
+see: https://www.weather.gov/beach/okx
+
+$$
+
+NYZ080-110815-
+Southwestern Suffolk-
+Including the beaches of Gilgo State Park and Robert Moses State Park
+711 PM EDT Mon Aug 10 2026
+
+.TUESDAY...
+Rip Current Risk............Low. 
+Surf Height.................1 to 2 feet. 
+Thunderstorm Potential......None. 
+UV Index**..................High. 
+Surf Temperature............Lower 70s. 
+Weather.....................Sunny. 
+High Temperature............Mid 80s. 
+Winds.......................West around 10 mph.
+Tides...
+   Fire Island Inlet........High at 6:34 AM.
+                            Low at 12:51 PM. 
+Sunrise.....................5:59 AM. 
+Sunset......................7:57 PM. 
+
+.WEDNESDAY...
+Rip Current Risk............Low. 
+Surf Height.................1 to 2 feet. 
+Thunderstorm Potential......None. 
+Weather.....................Mostly sunny. 
+High Temperature............Lower 80s. 
+Winds.......................Northeast around 10 mph, becoming 
+                            southeast in the afternoon.
+Tides...
+   Fire Island Inlet........High at 7:27 AM.
+                            Low at 1:46 PM. 
+Sunrise.....................6:00 AM. 
+Sunset......................7:56 PM. 
+
+.THURSDAY...Mostly sunny. A chance of showers and a slight chance of
+thunderstorms. Highs in the lower 80s. Southwest winds around 10 mph.
+.FRIDAY...Mostly sunny. A slight chance of showers. Highs in the
+upper 70s. Northwest winds around 10 mph. 
+.SATURDAY...Sunny. Highs in the upper 70s. North winds around 10 mph.
+
+&&
+
+Rip Current Risk Categories:
+
+* Low Risk - Implies that wind and wave conditions do not support an
+enhanced rip current risk. However, life-threatening rip currents are
+always possible in the vicinity of groins, jetties, reefs, and piers.
+
+* Moderate Risk - Life-threatening rip currents are possible in the
+surf zone. Anyone planning to enter the surf should check with local
+beach patrols first. Be sure to swim within sight of a life guard,
+and never alone or at night.
+
+* High Risk - Life-threatening rip currents are likely for all people
+entering the surf zone. Anyone visiting the beaches should stay out
+of the surf.
+
+If you enter the surf zone, always have a flotation device with you
+and swim near a lifeguard. If caught in a rip current, relax and
+float, and do not swim against the current. If able, swim in a
+direction following the shoreline. If unable to escape, face the
+shore and yell or wave for help.
+
+For UV Index definitions plus more on rip current and beach safety,
+see: https://www.weather.gov/beach/okx
+
+$$

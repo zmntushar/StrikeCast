@@ -11,7 +11,9 @@
 # light : multipliers for night / dawn / day / dusk (dawn & dusk = civil
 #         twilight +/- 1 h around sunrise/sunset).
 # current_opt: [low, high] preferred share of the tidal cycle's peak current.
-# waves_ft: [flat_ok, opt_low, opt_high, too_rough] nearshore wave height.
+# waves_ft: [flat_ok, opt_low, opt_high, too_rough] nearshore BREAKING surf (ft) at ocean
+#           beaches / wind chop in bays and the Sound (physical estimate, see docs/SURF_MODEL.md).
+# clarity_opt: [lo, hi] preferred range of the water-clarity proxy (0 clear .. 1 very dirty).
 # structure: affinity 0-1 for spot structure tags (best match wins, others add).
 # diet: weights over baitfish groups (empty = invertebrate feeder).
 # storm: multipliers before / during / after (12-72 h) storm events.
@@ -35,13 +37,14 @@ species:
     preferred_tide: {beach: [low_incoming, mid_incoming, high_outgoing], inlet: [outgoing, incoming], jetty: [incoming, outgoing], river_mouth: [outgoing], bay: [outgoing], pier: [outgoing, incoming]}
     onshore_wind_opt_mph: [6, 20]
     waves_ft: [0.8, 1.5, 4.5, 8]
+    clarity_opt: [0.15, 0.6]
     pressure: {falling_bonus: 0.25, rising_penalty: 0.15}
     structure: {inlet: 1.0, jetty: 0.95, rocks: 0.9, point: 0.9, river_mouth: 0.9, rip: 0.95, channel_edge: 0.85, trough: 0.85, sandbar: 0.8, bar: 0.8, beach: 0.7, pier: 0.65, bay: 0.55}
     diet: {adult_bunker: 0.3, peanut_bunker: 0.25, sand_eel: 0.25, silverside: 0.15, bay_anchovy: 0.05}
     storm: {pre: 1.10, during: 0.55, post: 1.15}
     fishability: {max_wind_mph: 30, max_wave_ft: 10}
     presence_weights: {structure: 0.55, bait: 0.45}
-    feeding_weights: {current: 0.22, light: 0.24, tide_stage: 0.08, wind: 0.12, waves: 0.1, pressure: 0.08, bait: 0.12, temp_trend: 0.04}
+    feeding_weights: {current: 0.22, light: 0.24, tide_stage: 0.08, wind: 0.12, waves: 0.1, pressure: 0.08, bait: 0.12, temp_trend: 0.04, clarity: 0.05}
     regulation_key: striped_bass
     tactics:
       night: "Swim slow: bucktails, darters, needlefish, live eels"
@@ -63,13 +66,14 @@ species:
     preferred_tide: {beach: [mid_incoming, high_outgoing], inlet: [outgoing, incoming], jetty: [incoming, outgoing], river_mouth: [outgoing], bay: [outgoing], pier: [outgoing, incoming]}
     onshore_wind_opt_mph: [4, 18]
     waves_ft: [0.5, 1.0, 5.0, 9]
+    clarity_opt: [0.0, 0.6]
     pressure: {falling_bonus: 0.15, rising_penalty: 0.1}
     structure: {inlet: 1.0, rip: 1.0, point: 0.9, jetty: 0.85, beach: 0.8, channel_edge: 0.8, trough: 0.75, sandbar: 0.75, bar: 0.7, river_mouth: 0.7, pier: 0.7, bay: 0.6, rocks: 0.6}
     diet: {peanut_bunker: 0.35, adult_bunker: 0.25, bay_anchovy: 0.2, silverside: 0.15, sand_eel: 0.05}
     storm: {pre: 1.05, during: 0.6, post: 1.05}
     fishability: {max_wind_mph: 28, max_wave_ft: 9}
     presence_weights: {structure: 0.5, bait: 0.5}
-    feeding_weights: {current: 0.24, light: 0.16, tide_stage: 0.06, wind: 0.1, waves: 0.08, pressure: 0.06, bait: 0.26, temp_trend: 0.04}
+    feeding_weights: {current: 0.24, light: 0.16, tide_stage: 0.06, wind: 0.1, waves: 0.08, pressure: 0.06, bait: 0.26, temp_trend: 0.04, clarity: 0.04}
     regulation_key: bluefish
     tactics:
       day: "Poppers, metal (Hopkins, Kastmaster) and wire leaders"
@@ -90,13 +94,14 @@ species:
     preferred_tide: {beach: [mid_incoming, high_outgoing], inlet: [incoming], jetty: [incoming], river_mouth: [incoming], bay: [incoming], pier: [incoming, outgoing]}
     onshore_wind_opt_mph: [0, 10]
     waves_ft: [0.0, 0.0, 2.0, 5]
+    clarity_opt: [0.0, 0.3]
     pressure: {falling_bonus: 0.05, rising_penalty: 0.05}
     structure: {channel_edge: 1.0, inlet: 0.95, bay: 0.9, pier: 0.85, sandbar: 0.85, trough: 0.8, beach: 0.75, river_mouth: 0.7, bar: 0.8, jetty: 0.6, point: 0.6, rip: 0.6, rocks: 0.35}
     diet: {sand_eel: 0.4, silverside: 0.4, bay_anchovy: 0.2}
     storm: {pre: 0.95, during: 0.4, post: 0.8}
     fishability: {max_wind_mph: 22, max_wave_ft: 6}
     presence_weights: {structure: 0.6, bait: 0.4}
-    feeding_weights: {current: 0.26, light: 0.2, tide_stage: 0.14, wind: 0.12, waves: 0.12, pressure: 0.04, bait: 0.1, temp_trend: 0.02}
+    feeding_weights: {current: 0.26, light: 0.2, tide_stage: 0.14, wind: 0.12, waves: 0.12, pressure: 0.04, bait: 0.1, temp_trend: 0.02, clarity: 0.08}
     regulation_key: fluke
     tactics:
       day: "Bucktail + Gulp! strip or spearing/squid; work channel edges on the drift"
@@ -117,6 +122,7 @@ species:
     preferred_tide: {beach: [high_outgoing, low_incoming], inlet: [slack_window], jetty: [slack_window], river_mouth: [slack_window], bay: [slack_window], pier: [slack_window]}
     onshore_wind_opt_mph: [0, 12]
     waves_ft: [0.0, 0.0, 2.0, 4.5]
+    clarity_opt: [0.0, 0.35]
     pressure: {falling_bonus: 0.05, rising_penalty: 0.05}
     structure: {jetty: 1.0, rocks: 1.0, pier: 0.85, point: 0.6, inlet: 0.6, rip: 0.4, river_mouth: 0.4, channel_edge: 0.4, bay: 0.35, beach: 0.1, sandbar: 0.05, trough: 0.1, bar: 0.1}
     structure_required: true
@@ -124,7 +130,7 @@ species:
     storm: {pre: 0.9, during: 0.3, post: 0.75}
     fishability: {max_wind_mph: 22, max_wave_ft: 5}
     presence_weights: {structure: 1.0, bait: 0.0}
-    feeding_weights: {current: 0.3, light: 0.25, tide_stage: 0.14, wind: 0.12, waves: 0.15, pressure: 0.04, bait: 0.0, temp_trend: 0.0}
+    feeding_weights: {current: 0.3, light: 0.25, tide_stage: 0.14, wind: 0.12, waves: 0.15, pressure: 0.04, bait: 0.0, temp_trend: 0.0, clarity: 0.06}
     regulation_key: blackfish
     tactics:
       day: "Green crabs or Asian crabs on a jig/rig tight to the rocks; fish the slack-tide windows"
@@ -145,13 +151,14 @@ species:
     preferred_tide: {beach: [mid_incoming, high_outgoing], inlet: [incoming, outgoing], jetty: [incoming, outgoing], river_mouth: [incoming], bay: [incoming, outgoing], pier: [incoming, outgoing]}
     onshore_wind_opt_mph: [0, 12]
     waves_ft: [0.0, 0.0, 2.5, 5]
+    clarity_opt: [0.0, 0.35]
     pressure: {falling_bonus: 0.05, rising_penalty: 0.05}
     structure: {pier: 1.0, rocks: 0.95, jetty: 0.9, channel_edge: 0.85, bay: 0.8, point: 0.7, inlet: 0.65, river_mouth: 0.55, rip: 0.5, beach: 0.35, trough: 0.4, sandbar: 0.3, bar: 0.35}
     diet: {}
     storm: {pre: 0.95, during: 0.4, post: 0.8}
     fishability: {max_wind_mph: 24, max_wave_ft: 6}
     presence_weights: {structure: 1.0, bait: 0.0}
-    feeding_weights: {current: 0.26, light: 0.26, tide_stage: 0.1, wind: 0.13, waves: 0.15, pressure: 0.05, bait: 0.0, temp_trend: 0.05}
+    feeding_weights: {current: 0.26, light: 0.26, tide_stage: 0.1, wind: 0.13, waves: 0.15, pressure: 0.05, bait: 0.0, temp_trend: 0.05, clarity: 0.06}
     regulation_key: porgy
     tactics:
       day: "Hi-lo rig with clam strips or squid; small hooks; chum with clam"

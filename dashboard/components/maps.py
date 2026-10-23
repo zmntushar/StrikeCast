@@ -6,7 +6,7 @@ from branca.element import Element, MacroElement, Template
 
 from app.models.bite import LEGEND, score_label
 from app.models.common import species_meta
-from dashboard.components.ui import esc, fmt, tide_text, wind_text, window_text
+from dashboard.components.ui import surf_headline, esc, fmt, tide_text, wind_text, window_text
 
 STRUCT_COLORS = {"drop-off": "#f97316", "deep channel": "#3b82f6", "trough": "#06b6d4", "bar / shoal": "#eab308"}
 
@@ -67,7 +67,7 @@ def _popup(fc, species: list[str], focus: str) -> str:
       {chips}
       <hr style="margin:6px 0;border:none;border-top:1px solid #e2e8f0">
       <div>💧 {fmt(row.get('water_temp_f'), '{:.1f}')}°F · 💨 {esc(wind_text(row))}</div>
-      <div>🌊 ~{fmt(row.get('nearshore_wave_ft'), '{:.1f}')} ft surf · {esc(tide_text(row))}</div>
+      <div>🌊 {esc(surf_headline(row))} · {esc(tide_text(row))}</div>
       {win}
     </div>"""
 

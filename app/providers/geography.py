@@ -206,6 +206,154 @@ def analyze(grid: BathyGrid, facing_deg: float, *, walk_m: float = 350, cast_m: 
     )
 
 
+# ------------------------------------------------------------ wave exposure
+# Rays cast from the spot over the same NOAA DEM give, for every direction the
+# wind or waves could come FROM: the over-water distance to the first land
+# (fetch) and whether the ray reaches open ocean. The surf model uses these
+# instead of a hand-tuned "exposure" multiplier.
+RAY_STEP_DEG = 10
+RAY_MAX_KM = 100.0
+RAY_DIST_KM = np.concatenate([np.arange(0.1, 5.0, 0.2), np.arange(5.0, 30.0, 1.0), np.arange(30.0, RAY_MAX_KM + 0.1, 2.5)])
+LAND_Z_M = 0.5      # NAVD88 elevation treated as land (≈ mean high water on Long Island)
+WATER_Z_M = -0.3
+
+
+@dataclass
+class Exposure:
+    dirs_deg: list[float]          # direction rays point TO (= direction waves/wind come FROM)
+    fetch_km: list[float]          # over-water distance to first land (RAY_MAX_KM = open)
+    mean_depth_m: list[float]      # mean water depth along the fetch
+    open_ocean: list[bool]         # ray reached RAY_MAX_KM without hitting land
+    boundary_depth_m: float | None = None   # DEM depth at the offshore wave-model point
+    edge_depth_m: list[float] | None = None  # water depth just before the land that ends the ray
+    source: str = "NOAA NCEI DEM mosaic ray-cast"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {k: getattr(self, k) for k in self.__dataclass_fields__}
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "Exposure":
+        return cls(**{k: d[k] for k in cls.__dataclass_fields__ if k in d})
+
+
+def ray_profile(z: np.ndarray, dist_km: np.ndarray = RAY_DIST_KM) -> tuple[float, float, bool, float]:
+    """(fetch_km, mean_depth_m, open_ocean, edge_depth_m) for one ray of DEM elevations (NAVD88 m).
+
+    The spot sits on the shoreline, so samples before the first water cell (within
+    0.5 km) are the beach itself and are skipped. Missing samples far offshore are
+    treated as water (the DEM mosaic thins out on the outer shelf).
+    """
+    z = np.asarray(z, dtype=float)
+    start = None
+    for k, (d, v) in enumerate(zip(dist_km, z)):
+        if d > 0.5:
+            break
+        if np.isfinite(v) and v < WATER_Z_M:
+            start = k
+            break
+    if start is None:
+        return 0.0, 0.0, False, 0.0
+    depths, steps = [], []
+    for k in range(start, len(z)):
+        v = z[k]
+        if np.isfinite(v) and v > LAND_Z_M:
+            fetch = float(dist_km[k])
+            break
+        if np.isfinite(v) and v < 0:
+            depths.append(-v)
+            steps.append(float(dist_km[k] - (dist_km[k - 1] if k else 0.0)))
+    else:
+        fetch = float(dist_km[-1])
+    mean_depth = float(np.average(depths, weights=steps)) if depths else 0.0
+    edge = float(max(depths[-3:])) if depths else 0.0
+    return fetch, mean_depth, fetch >= dist_km[-1] - 1e-6, edge
+
+
+async def sample_points(http: HttpClient, pts: list[tuple[float, float]]) -> np.ndarray:
+    """DEM elevation (m, NAVD88) at arbitrary (lat, lon) points."""
+    flat = [[round(lo, 6), round(la, 6)] for la, lo in pts]
+    z = np.full(len(flat), np.nan)
+    for b in range(0, len(flat), CHUNK):
+        chunk = flat[b:b + CHUNK]
+        geom = json.dumps({"points": chunk, "spatialReference": {"wkid": 4326}})
+        res = await http.request(DEM_URL, provider="NOAA NCEI DEM", method="POST",
+                                 data={"geometry": geom, "geometryType": "esriGeometryMultipoint",
+                                       "returnFirstValueOnly": "true", "f": "json"},
+                                 ttl=get_settings().ttl_bathymetry)
+        for smp in res.data.get("samples", []):
+            try:
+                z[b + int(smp["locationId"])] = float(smp["value"])
+            except (KeyError, TypeError, ValueError):
+                continue
+    return z
+
+
+async def exposure_rays(http: HttpClient, lat: float, lon: float,
+                        boundary: tuple[float, float] | None = None) -> Exposure:
+    from app.core.geo import destination
+    dirs = list(np.arange(0, 360, RAY_STEP_DEG, dtype=float))
+    pts = [destination(lat, lon, d, float(r)) for d in dirs for r in RAY_DIST_KM]
+    if boundary:
+        pts.append(boundary)
+    z = await sample_points(http, pts)
+    bdepth = None
+    if boundary:
+        bz = z[-1]
+        bdepth = round(float(-bz), 1) if np.isfinite(bz) and bz < 0 else None
+        z = z[:-1]
+    z = z.reshape(len(dirs), len(RAY_DIST_KM))
+    fetch, depth, open_, edge = [], [], [], []
+    for row in z:
+        f, md, o, ed = ray_profile(row)
+        fetch.append(round(f, 2)); depth.append(round(md, 1)); open_.append(bool(o)); edge.append(round(ed, 1))
+    return Exposure([float(d) for d in dirs], fetch, depth, open_, bdepth, edge)
+
+
+def cross_shore_profile(grid: BathyGrid, facing_deg: float, max_m: float = 400.0) -> tuple[np.ndarray, np.ndarray] | None:
+    """Depth (m below NAVD88) along the shore normal, starting at the waterline.
+
+    Returns (distance_m, depth_m) or None when the DEM has no water there.
+    """
+    if not grid.fetched_ok:
+        return None
+    n, step = grid.n, grid.step_m
+    c = n // 2
+    fe, fn = math.sin(math.radians(facing_deg)), math.cos(math.radians(facing_deg))
+    d = np.arange(0, max_m + step, step / 2)
+    jj = np.clip(np.round(c + fn * d / step).astype(int), 0, n - 1)
+    ii = np.clip(np.round(c + fe * d / step).astype(int), 0, n - 1)
+    z = grid.z[jj, ii]
+    wet = np.nonzero(np.isfinite(z) & (z < WATER_Z_M))[0]
+    if len(wet) < 4:
+        return None
+    k0 = wet[0]
+    dist, depth = d[k0:] - d[k0], -z[k0:]
+    ok = np.isfinite(depth)
+    return dist[ok], depth[ok]
+
+
+def profile_features(dist: np.ndarray, depth: np.ndarray) -> dict[str, float | None]:
+    """Nearshore slope and a candidate outer sandbar from a cross-shore profile."""
+    out: dict[str, float | None] = {"slope": None, "bar_dist_m": None, "bar_depth_m": None, "trough_depth_m": None}
+    if dist is None or len(dist) < 4:
+        return out
+    # beach-face slope: waterline to the 3 m contour (or the end of the profile)
+    k3 = np.nonzero(depth >= 3.0)[0]
+    k = k3[0] if len(k3) else len(depth) - 1
+    if dist[k] > 0:
+        out["slope"] = round(float(np.clip((depth[k] - depth[0]) / dist[k], 0.002, 0.2)), 4)
+    # bar = a local depth minimum seaward of a trough at least 0.3 m deeper
+    sm = np.convolve(depth, np.ones(3) / 3, mode="same")
+    for i in range(2, len(sm) - 2):
+        if sm[i] <= sm[i - 1] and sm[i] <= sm[i + 1] and dist[i] >= 40:
+            trough = float(np.max(sm[:i]))
+            if trough - sm[i] >= 0.3:
+                out.update(bar_dist_m=round(float(dist[i])), bar_depth_m=round(float(sm[i]), 2),
+                           trough_depth_m=round(trough, 2))
+                break
+    return out
+
+
 def structure_bonus(analysis: BathyAnalysis | None) -> dict[str, float]:
     """0-1 boosts for structure tags confirmed by bathymetry."""
     if not analysis or not analysis.ok:

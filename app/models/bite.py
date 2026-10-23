@@ -43,6 +43,8 @@ def fishability(df: pd.DataFrame, spot: Spot, species: str) -> pd.DataFrame:
     wind = col(df, "wind_mph")
     gust = col(df, "gust_mph")
     wave = col(df, "nearshore_wave_ft")
+    if "inlet_wave_ft" in df and spot.environment == "inlet":
+        wave = np.fmax(wave, col(df, "inlet_wave_ft"))   # ebb running into the swell steepens the inlet bar
     precip = col(df, "precip_in", 0)
     vis = col(df, "visibility_mi")
     thunder = df.get("thunder", pd.Series(False, index=df.index)).fillna(False).to_numpy(dtype=bool)
@@ -123,7 +125,18 @@ def explain_hour(row: pd.Series, species: str, spot: Spot) -> list[FactorScore]:
     add("Wind", f"ff_{species}_wind", w.get("wind", 0),
         f"{_fmt(row.get('wind_mph'))} mph from {compass(row.get('wind_dir'))} "
         f"({'onshore' if (row.get('onshore_mph') or 0) > 2 else 'offshore' if (row.get('onshore_mph') or 0) < -2 else 'side-shore'} {abs(row.get('onshore_mph') or 0):.0f} mph)")
-    add("Surf", f"ff_{species}_waves", w.get("waves", 0), f"~{_fmt(row.get('nearshore_wave_ft'), '{:.1f}')} ft nearshore (est.)")
+    kind = row.get("surf_kind")
+    surf_txt = (f"{_fmt(row.get('surf_ft'), '{:.1f}')} ft wind chop (sheltered water)" if kind == "wind chop"
+                else f"{_fmt(row.get('surf_ft'), '{:.1f}')} ft breaking surf "
+                     f"({_fmt(row.get('surf_lo_ft'), '{:.1f}')}–{_fmt(row.get('surf_hi_ft'), '{:.1f}')}), "
+                     f"{_fmt(row.get('offshore_tp_s'), '{:.0f}')} s from {compass(row.get('offshore_dir'))}")
+    from app.models.feeding import WAVE_WEIGHT_BY_EXPOSURE
+    add("Surf", f"ff_{species}_waves", w.get("waves", 0) * WAVE_WEIGHT_BY_EXPOSURE.get(spot.exposure_class, 1.0), surf_txt)
+    if w.get("clarity", 0) > 0:
+        ci = row.get("clarity_index")
+        word = "clear" if (ci or 0) < 0.25 else "some color" if (ci or 0) < 0.55 else "dirty"
+        add("Water clarity", f"ff_{species}_clarity", w.get("clarity", 0),
+            f"{word} (proxy {_fmt(ci, '{:.2f}')}: recent surf, rain, storms)")
     add("Pressure trend", f"ff_{species}_pressure", w.get("pressure", 0),
         f"{_fmt(row.get('pressure_tend_3h'), '{:+.1f}')} hPa / 3 h")
     if w.get("temp_trend", 0) > 0:

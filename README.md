@@ -81,10 +81,12 @@ OpenStreetMap ask API users to identify themselves.
 | Tide highs/lows | [NOAA CO-OPS](https://api.tidesandcurrents.noaa.gov/api/prod/) | predicted | Station chosen per spot (e.g. Democrat Point 8515228) |
 | Tidal currents (max flood/ebb, slack) | NOAA CO-OPS current predictions | predicted | Fire Island Inlet, Jones Inlet, Crane Neck, Shinnecock… |
 | Water temperature, water level | NOAA CO-OPS gauges, [NOAA NDBC](https://www.ndbc.noaa.gov/) buoys 44025 / 44065 / 44069 | measured | Freshest suitable station is used; any substitution is shown |
-| Offshore waves | NOAA NDBC | measured | Kept separate from the nearshore surf estimate |
+| Offshore waves, swell / wind-wave split | NOAA NDBC 44065 / 44025 (stdmet + spectral summary) | measured | Corrects the wave model near the present; never shown as surf |
 | Hourly forecast, alerts | [NOAA / National Weather Service API](https://www.weather.gov/documentation/services-web-api) | predicted | Official wind; Small Craft / Gale / Coastal Flood alerts |
 | Weather (pressure, gusts, clouds, rain) | [Open-Meteo](https://open-meteo.com) (CC BY 4.0) | model | Also historical archive for date comparisons |
-| Waves, swell, SST | [Open-Meteo Marine](https://open-meteo.com/en/docs/marine-weather-api) | model | |
+| Waves, swell, SST | [Open-Meteo Marine](https://open-meteo.com/en/docs/marine-weather-api) | model | Primary + secondary swell and wind sea ~12 km off each ocean spot |
+| Marine zone forecasts, surf zone forecasts | NWS Coastal Waters Forecast / Surf Zone Forecast (api.weather.gov, tgftp fallback) | predicted | Wave fallback, cross-check, advisories |
+| Archived NWS products & advisories | [Iowa Environmental Mesonet](https://mesonet.agron.iastate.edu/) AFOS / VTEC archive | archived | Date comparison and validation only |
 | Bathymetry (~3 m) | [NOAA NCEI CUDEM](https://www.ncei.noaa.gov/products/coastal-elevation-models) via DEM ImageServer | measured (survey) | Drop-offs, troughs, channels, cast targets |
 | Nautical chart | NOAA Office of Coast Survey ENC (WMS) | — | Map overlay |
 | Imagery / basemaps | USGS National Map (public domain), Esri, OpenStreetMap, CARTO, OpenSeaMap | — | Map layers |
@@ -104,9 +106,11 @@ StrikeCast follows a **transparent, configurable, rule-based** approach (see [`c
    water body) × water temperature, then refined by shoreline structure (spot tags + bathymetry) and preferred bait.
 3. **Feeding Activity Index (0–100, hourly)** — tidal current strength vs the species' preference (from NOAA current
    predictions — max current is *not* assumed to be at mid-tide), tide stage, light (dawn/dusk/night/day + cloud),
-   onshore/offshore wind relative to *that* beach's orientation, surf, 3-hour pressure trend, bait and temperature trend.
+   onshore/offshore wind relative to *that* beach's orientation, surf (weighted by how exposed the spot is),
+   a water-clarity proxy, 3-hour pressure trend, bait and temperature trend.
    Storm/nor'easter phases (pre / during / post) apply configurable effects; storms are not assumed to always hurt fishing.
-4. **Fishability** — practical shore-angler limits: wind, gusts, surf on jetties, lightning, heavy rain, fog.
+4. **Fishability** — practical shore-angler limits: wind, gusts, surf on jetties, inlet waves, lightning, heavy rain, fog.
+   (A separate **surf safety** label — OK / Caution / Dangerous — is shown on each card and is *not* part of the score.)
 5. **Bite Index** = presence^0.6 × feeding^0.4 × fishability (rescaled).
 
 | Bite Index | Label |
@@ -125,7 +129,10 @@ StrikeCast follows a **transparent, configurable, rule-based** approach (see [`c
 - Measured, predicted, model, interpolated and heuristic values are labeled everywhere.
 - If a provider is down, the feature is marked missing, scores fall back to neutral values, and the data-quality grade drops.
   StrikeCast never substitutes an unrelated station without saying so.
-- Offshore buoys are an offshore reference; nearshore surf is a labeled estimate (exposure × direction × wind chop).
+- Surf is physics, not a multiplier: offshore waves are shoaled, refracted, sheltered by real geography and broken
+  ([docs/SURF_MODEL.md](docs/SURF_MODEL.md)). Bays and the Sound show **wind chop**, never ocean "surf". Every estimate
+  has a range, a confidence label and its sources. With no usable data it says **"Surf estimate unavailable"**.
+  Validation against buoys and NWS forecasts: [docs/VALIDATION.md](docs/VALIDATION.md).
 - Bathymetry structure is labeled "candidate": surveys are dated and sandbars move after storms.
 
 ---
@@ -153,16 +160,20 @@ used on any US coast, but the species seasons are tuned for Long Island / the NY
 ```
 app/
   core/        settings, structured logging, async HTTP client (retry, backoff, SQLite cache, stale-if-error)
-  providers/   weather (Open-Meteo, NWS) · marine (NDBC, Open-Meteo Marine) · tides (CO-OPS) · lunar · geography · geocode
-  features/    tide/current interpolation, pressure tendency, onshore wind, nearshore surf, seasonal curves
+  providers/   weather (Open-Meteo, NWS) · marine (NDBC, Open-Meteo Marine, QC) · nws_marine (CWF / SRF / advisories)
+               · tides (CO-OPS) · lunar · geography (bathymetry, exposure rays) · geocode
+  features/    tide/current interpolation, pressure tendency, onshore wind, clarity proxy, surf physics, seasonal curves
   models/      baitfish · presence · feeding · storms · bite (fishability, explanations, windows) · striped_bass
-  services/    forecast orchestration, date comparison, station discovery, fishing log
+  services/    forecast orchestration, surf pipeline (boundary waves → surf), date comparison, station discovery, fishing log
   ml/          personal model training (chronological split, ROC-AUC / PR-AUC / Brier, calibration)
   database/    SQLAlchemy models (SQLite by default, PostgreSQL-ready)
   main.py      FastAPI app + hourly scheduler
 dashboard/     Streamlit app + map/chart/UI components
-configs/       spots, stations, species & bait profiles, regulations
-tests/         pytest suite (tides, timezones/DST, parsing, scoring, missing data, cache, API, log)
+configs/       spots, stations, species & bait profiles, regulations, exposure.yaml (generated wave geometry)
+scripts/       compute_exposure.py (ray-cast geometry) · validate_surf.py (model vs buoys / NWS)
+docs/          SURF_MODEL.md · VALIDATION.md
+tests/         pytest suite (tides, timezones/DST, parsing, scoring, surf physics & pipeline, marine data QC,
+               missing data / outages, cache, API, log)
 ```
 
 ## Roadmap

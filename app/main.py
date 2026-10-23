@@ -43,6 +43,17 @@ def _json_safe(v: Any) -> Any:
     return v
 
 
+def _plain(v: Any) -> Any:
+    """Recursively make surf / marine metadata JSON-safe (drops pandas Series)."""
+    if isinstance(v, dict):
+        return {str(k): _plain(x) for k, x in v.items() if not isinstance(x, (pd.Series, pd.DataFrame))}
+    if isinstance(v, (list, tuple)):
+        return [_plain(x) for x in v]
+    if hasattr(v, "isoformat"):
+        return v.isoformat()
+    return _json_safe(v)
+
+
 def to_api(fc: SpotForecast, hourly_cols: list[str] | None = None) -> ApiSpotForecast:
     d = fc.display
     cols = hourly_cols or [c for c in d.columns if not c.startswith(("pf_", "ff_", "bf_"))]
@@ -52,7 +63,8 @@ def to_api(fc: SpotForecast, hourly_cols: list[str] | None = None) -> ApiSpotFor
                            quality=fc.quality, current=now,
                            windows=[w for ws in fc.windows.values() for w in ws], alerts=fc.alerts,
                            sources=fc.sources, hourly=hourly,
-                           bathymetry=fc.bathy.to_dict() if fc.bathy else None)
+                           bathymetry=fc.bathy.to_dict() if fc.bathy else None,
+                           surf=_plain({**fc.surf, "latest_buoy": fc.latest_buoy()}), marine=_plain(fc.marine))
 
 
 async def refresh_favorites() -> None:

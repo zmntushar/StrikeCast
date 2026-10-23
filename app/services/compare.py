@@ -59,18 +59,52 @@ def day_metrics(fc: SpotForecast) -> dict[str, tuple[Any, str]]:
     put("Air temperature (mean)", d["air_temp_f"].mean(), wx_kind)
     put("Cloud cover (mean)", d["cloud_pct"].mean(), wx_kind)
     put("Precipitation (total)", d["precip_in"].sum(min_count=1), wx_kind)
-    put("Waves at spot, model (mean)", d["wave_ft"].mean(), "model")
-    put("Wave period (mean)", d["wave_period_s"].mean(), "model")
     nb = int(d["buoy_wave_ft"].notna().sum()) if "buoy_wave_ft" in d else 0
-    put("Offshore buoy waves (mean)", d["buoy_wave_ft"].mean() if nb else np.nan,
-        f"measured {nb}/{len(d)} h" if nb else "missing")
-    put("Nearshore surf, est. (mean)", d["nearshore_wave_ft"].mean(), "heuristic")
+    bkind = f"measured {nb}/{len(d)} h" if nb else "missing"
+    put("Offshore Hs, buoy (mean)", d["buoy_wave_ft"].mean() if nb else np.nan, bkind)
+    put("Offshore Hs, buoy (max)", d["buoy_wave_ft"].max() if nb else np.nan, bkind)
+    put("Buoy dominant period (mean)", d["buoy_period_s"].mean() if nb and "buoy_period_s" in d else np.nan, bkind)
+    put("Buoy wave direction (mean)", _circ_mean(d["buoy_wave_dir"]) if nb and "buoy_wave_dir" in d else np.nan, bkind)
+    ns = int(d["buoy_swell_ft"].notna().sum()) if "buoy_swell_ft" in d else 0
+    skind = f"measured {ns}/{len(d)} h" if ns else "missing"
+    put("Buoy swell height (mean)", d["buoy_swell_ft"].mean() if ns else np.nan, skind)
+    put("Buoy swell period (mean)", d["buoy_swell_period_s"].mean() if ns else np.nan, skind)
+    mk = "model" if d["wave_ft"].notna().any() else "missing"
+    put("Offshore Hs, model (mean)", d["wave_ft"].mean(), mk)
+    if fc.spot.is_open_ocean:
+        used = ", ".join(sorted({str(x) for x in d.get("surf_source", pd.Series(dtype=object)).dropna().unique()})) or "missing"
+        put("Swell height, used (mean)", d["bc_swell_ft"].mean() if "bc_swell_ft" in d else np.nan, used)
+        put("Swell period, used (mean)", d["bc_swell_tp_s"].mean() if "bc_swell_tp_s" in d else np.nan, used)
+        put("Swell direction, used (mean)", _circ_mean(d["bc_swell_dir"], d["bc_swell_ft"]) if "bc_swell_dir" in d else np.nan, used)
+        put("Wind-wave height, used (mean)", d["bc_windwave_ft"].mean() if "bc_windwave_ft" in d else np.nan, used)
+        put("Wind-wave period, used (mean)", d["bc_windwave_tp_s"].mean() if "bc_windwave_tp_s" in d else np.nan, used)
+        put("Wave direction (dominant)", _circ_mean(d["offshore_dir"], d["offshore_hs_ft"]) if "offshore_dir" in d else np.nan, used)
+    surf_kind = "model" if d["surf_ft"].notna().any() else "missing"
+    lab = "Surf, breaking est." if fc.spot.is_open_ocean else "Wind chop est."
+    put(f"{lab} (mean)", d["surf_ft"].mean(), surf_kind)
+    put(f"{lab} (max)", d["surf_ft"].max(), surf_kind)
+    conf = d["surf_confidence"].dropna().mode() if "surf_confidence" in d else pd.Series(dtype=object)
+    put("Surf estimate confidence", str(conf.iloc[0]) if len(conf) else "—", surf_kind)
+    if "nws_seas_hi_ft" in d and d["nws_seas_hi_ft"].notna().any():
+        put("NWS zone seas/waves (forecast range)", f"{d['nws_seas_lo_ft'].min():.0f}–{d['nws_seas_hi_ft'].max():.0f} ft", "predicted (archived)")
+    else:
+        put("NWS zone seas/waves (forecast range)", "—", "missing")
+    srf = [x for x in fc.marine.get("srf", []) if x["day"] == fc.frame.target_date]
+    put("NWS surf zone forecast", f"{srf[0]['lo']:.0f}–{srf[0]['hi']:.0f} ft · rip {srf[0]['rip'] or '—'}" if srf else "—",
+        "predicted (archived)" if srf else "missing (issued in beach season)")
+    adv = sorted({a["name"] for a in fc.marine.get("advisories", [])})
+    put("Marine advisories", "; ".join(adv) if adv else ("none" if fc.marine.get("advisories") is not None else "—"),
+        "NWS (archived VTEC)" if fc.spot.marine_zone else "missing")
     wkind = str(d["water_temp_kind"].mode().iloc[0]) if "water_temp_kind" in d and d["water_temp_kind"].notna().any() else "missing"
     if wkind == "measured":
         wkind = f"measured {int(d['water_temp_f'].notna().sum())}/{len(d)} h"
     put("Water temperature (mean)", d["water_temp_f"].mean(), wkind)
     put("Water temp change (3 days)", d["water_temp_trend_3d"].mean(), wkind)
     put("Tidal range (max)", d["tide_range_ft"].max(), "predicted")
+    if fc.daily and fc.daily[0].get("sunrise") is not None:
+        sr = pd.Timestamp(fc.daily[0]["sunrise"]).tz_convert("UTC").floor("h")
+        put("Tide stage at sunrise", str(fc.hourly.loc[sr, "tide_stage"]) if sr in fc.hourly.index and fc.hourly.loc[sr, "tide_stage"] else "—",
+            "predicted")
     put("Peak current", d["current_kt"].abs().max() if d["current_kt"].notna().any() else np.nan,
         "predicted" if d["current_kt"].notna().any() else "heuristic")
     put("Water-level anomaly (max)", d["water_level_anom_ft"].max() if d["water_level_anom_ft"].notna().any() else np.nan,
@@ -93,8 +127,12 @@ def day_metrics(fc: SpotForecast) -> dict[str, tuple[Any, str]]:
 UNITS = {"Wind speed (mean)": "mph", "Wind gusts (max)": "mph", "Wind direction (dominant)": "°",
          "Onshore wind (mean)": "mph", "Pressure (mean)": "hPa", "Pressure change (24 h)": "hPa",
          "Air temperature (mean)": "°F", "Cloud cover (mean)": "%", "Precipitation (total)": "in",
-         "Waves at spot, model (mean)": "ft", "Wave period (mean)": "s", "Offshore buoy waves (mean)": "ft",
-         "Nearshore surf, est. (mean)": "ft", "Water temperature (mean)": "°F",
+         "Offshore Hs, buoy (mean)": "ft", "Offshore Hs, buoy (max)": "ft", "Buoy dominant period (mean)": "s",
+         "Buoy wave direction (mean)": "°", "Buoy swell height (mean)": "ft", "Buoy swell period (mean)": "s",
+         "Offshore Hs, model (mean)": "ft", "Swell height, used (mean)": "ft", "Swell period, used (mean)": "s",
+         "Swell direction, used (mean)": "°", "Wind-wave height, used (mean)": "ft", "Wind-wave period, used (mean)": "s",
+         "Wave direction (dominant)": "°", "Surf, breaking est. (mean)": "ft", "Surf, breaking est. (max)": "ft",
+         "Wind chop est. (mean)": "ft", "Wind chop est. (max)": "ft", "Water temperature (mean)": "°F",
          "Water temp change (3 days)": "°F", "Tidal range (max)": "ft", "Peak current": "kt",
          "Water-level anomaly (max)": "ft", "Moon illumination": "%"}
 
@@ -105,7 +143,7 @@ def build_table(ma: dict, mb: dict) -> pd.DataFrame:
         va, ka = ma[k]
         vb, kb = mb.get(k, (np.nan, "missing"))
         numeric = isinstance(va, (int, float, np.floating)) and isinstance(vb, (int, float, np.floating))
-        diff = (angle_diff(vb, va) if "direction" in k else vb - va) if numeric else None
+        diff = (angle_diff(vb, va) if "direction" in k.lower() else vb - va) if numeric else None
         rows.append({"metric": k, "unit": UNITS.get(k, ""), "A": va, "B": vb, "diff": diff, "kind_a": ka, "kind_b": kb})
     return pd.DataFrame(rows)
 
@@ -128,7 +166,7 @@ def explain(table: pd.DataFrame, fa: SpotForecast, fb: SpotForecast) -> list[str
         windier, calmer = (lb, la) if wb > wa else (la, lb)
         ob_w = v("Onshore wind (mean)", "B" if wb > wa else "A") or 0
         effect = ("Onshore wind like that can stack bait against the beach and color the water."
-                  if ob_w > 3 else "Offshore wind flattens the surf and can push bait off the beach."
+                  if ob_w > 3 else "Offshore wind knocks down local chop, grooms any incoming swell and can push bait off the beach."
                   if ob_w < -3 else "Mostly side-shore, so it moved water along the beach more than onto it.")
         out.append(f"Wind: {windier} was noticeably windier ({max(wa, wb):.0f} vs {min(wa, wb):.0f} mph average). "
                    f"Direction {compass(v('Wind direction (dominant)', 'A'))} on {la} vs {compass(v('Wind direction (dominant)', 'B'))} on {lb}. "
@@ -139,10 +177,22 @@ def explain(table: pd.DataFrame, fa: SpotForecast, fb: SpotForecast) -> list[str
     pa, pb = v("Pressure change (24 h)", "A"), v("Pressure change (24 h)", "B")
     if pa is not None and pb is not None and abs(pb - pa) >= 4:
         out.append(f"Pressure trend: {pa:+.0f} hPa over {la} vs {pb:+.0f} hPa over {lb}. Falling pressure ahead of fronts is often linked to active feeding; a sharp post-front rise is often linked to a slower bite.")
-    sa, sb = v("Nearshore surf, est. (mean)", "A"), v("Nearshore surf, est. (mean)", "B")
-    if sa is not None and sb is not None and abs(sb - sa) >= 1:
-        out.append(f"Surf: about {sa:.1f} ft on {la} vs {sb:.1f} ft on {lb} (estimate). Moderate white water favors bass and blues; rough or dirty water hurts fluke, porgies and tog, and jetty safety.")
-    ya, yb = v("Offshore buoy waves (mean)", "A"), v("Offshore buoy waves (mean)", "B")
+    lab = "Surf, breaking est. (mean)" if fa.spot.is_open_ocean else "Wind chop est. (mean)"
+    sa, sb = v(lab, "A"), v(lab, "B")
+    if sa is not None and sb is not None and abs(sb - sa) >= 0.8:
+        word = "Surf" if fa.spot.is_open_ocean else "Wind chop (sheltered water)"
+        out.append(f"{word}: about {sa:.1f} ft on {la} vs {sb:.1f} ft on {lb} (physical estimate from archived waves/wind). "
+                   "Moderate white water favors bass and blues; rough or dirty water hurts fluke, porgies and tog, and jetty safety.")
+    pa_, pb_ = v("Swell period, used (mean)", "A"), v("Swell period, used (mean)", "B")
+    da_, db_ = v("Swell direction, used (mean)", "A"), v("Swell direction, used (mean)", "B")
+    if pa_ is not None and pb_ is not None and (abs(pb_ - pa_) >= 2 or (da_ is not None and db_ is not None and abs(angle_diff(db_, da_)) >= 30)):
+        out.append(f"Swell: {pa_:.0f} s from {compass(da_)} on {la} vs {pb_:.0f} s from {compass(db_)} on {lb}. "
+                   "Longer-period swell from a direction facing the beach breaks harder (more power, stronger rips) than short wind chop running along it.")
+    for side, lab_d in (("A", la), ("B", lb)):
+        adv = v("Marine advisories", side)
+        if adv and adv not in ("none", "—"):
+            out.append(f"NWS marine advisories in effect on {lab_d}: {adv}.")
+    ya, yb = v("Offshore Hs, buoy (mean)", "A"), v("Offshore Hs, buoy (mean)", "B")
     if ya is not None and yb is not None and abs(yb - ya) >= 2:
         out.append(f"Offshore seas (measured at the buoy): {ya:.1f} ft on {la} vs {yb:.1f} ft on {lb}. "
                    "Big offshore seas usually mean a churned-up, dirty nearshore and dangerous jetties.")
