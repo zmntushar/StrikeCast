@@ -34,8 +34,9 @@ from app.services.stations import build_custom_spot  # noqa: E402
 from dashboard.components import charts  # noqa: E402
 from dashboard.components.maps import build_map  # noqa: E402
 from dashboard.components.styles import CSS  # noqa: E402
+from app.models.tackle import recommend  # noqa: E402
 from dashboard.components.ui import (chip, esc, fmt, hour_label, isnum, kind_badge, legend_html,  # noqa: E402
-                                     tide_text, wind_text, window_text)
+                                     species_popover, tide_text, wind_text, window_text)
 
 st.markdown(CSS, unsafe_allow_html=True)
 
@@ -248,21 +249,34 @@ def best_bet(fcs: dict, sps: list[str], hours_ahead: int = 24):
 def spot_card(fc) -> str:
     row = fc.hourly.loc[start_ts:].iloc[0] if not fc.hourly.loc[start_ts:].empty else fc.now_row()
     d = view(fc)
-    chips = "".join(chip(sp, float(row.get(f"bite_{sp}", np.nan)), f"· peak {fmt(d[f'bite_{sp}'].max())}") for sp in species)
+    depth = fc.bathy.max_depth_cast_m if fc.bathy and fc.bathy.ok else None
+    chip_html = []
+    for sp in species:
+        ws_sp = windows(fc, sp)
+        s_sp = d[f"bite_{sp}"].dropna() if not d.empty else pd.Series(dtype=float)
+        peak_ts = pd.Timestamp(ws_sp[0].peak) if ws_sp else (s_sp.idxmax() if not s_sp.empty else None)
+        prow = fc.hourly.loc[peak_ts] if peak_ts is not None else row
+        reg = season_status(sp, (peak_ts if peak_ts is not None else start_ts).tz_convert(fc.spot.timezone).date())
+        rec = recommend(sp, prow, fc.spot.environment, depth)
+        why = narrative(prow, sp, fc.spot) if peak_ts is not None else ""
+        pop = species_popover(fc, sp, d, ws_sp, reg, rec, why)
+        peak_txt = f"· peak {fmt(s_sp.max() if not s_sp.empty else None)}"
+        chip_html.append(chip(sp, float(row.get(f"bite_{sp}", np.nan)), peak_txt, pop=pop))
+    chips = "".join(chip_html)
     top_sp = max(species, key=lambda s: d[f"bite_{s}"].max() if not d.empty else -1)
     ws = windows(fc, top_sp)
     win = (f'<div class="sc-window">⏱ Best {esc(species_meta(top_sp)["short"])} window: <b>{window_text(ws[0], fc.spot.timezone)}</b>'
            f' · peak {ws[0].peak_score:.0f}</div>') if ws else '<div class="sc-window">No standout window in this range.</div>'
     g = fc.quality["grade"]
     gcol = {"A": "#22c55e", "B": "#84cc16", "C": "#f59e0b", "D": "#ef4444"}[g]
-    return f"""<div class="sc-card">
+    return f"""<div class="sc-card sc-spot">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:.5rem">
         <div><h4>{'★ ' if fc.spot.favorite else ''}{esc(fc.spot.name)}</h4>
         <div class="sc-sub">{esc(fc.spot.region)} · {esc(fc.spot.environment.replace('_', ' '))}</div></div>
         <span class="sc-badge" style="background:{gcol}22;color:{gcol};border:1px solid {gcol}66">data {g}</span>
       </div>
       <div class="sc-chips">{chips}</div>
-      <div class="sc-sub">Bite Index now · peak in selected window</div>
+      <div class="sc-sub">Bite Index now · peak in selected window · hover a fish for details &amp; tackle</div>
       <div class="sc-cond">
         <div><span>Water</span> {fmt(row.get('water_temp_f'), '{:.1f}')}°F</div>
         <div><span>Surf</span> ~{fmt(row.get('nearshore_wave_ft'), '{:.1f}')} ft</div>
