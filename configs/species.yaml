@@ -1,0 +1,211 @@
+# StrikeCast species & baitfish profiles (Long Island / NY Bight calibration)
+# ---------------------------------------------------------------------------
+# These are HEURISTIC, configurable parameters assembled from widely published
+# angler knowledge and general fisheries literature. They produce environmental
+# SUITABILITY indices (0-100), not calibrated catch probabilities. Once you log
+# trips in the Fishing Log, StrikeCast can train a model on your own data.
+#
+# season: list of [day_of_year, value 0-1] points (south-shore Long Island,
+#         reference latitude 40.7 N). Linear interpolation, wraps around the year.
+# temp_f: [min, opt_low, opt_high, max] trapezoid of water temperature (deg F).
+# light : multipliers for night / dawn / day / dusk (dawn & dusk = civil
+#         twilight +/- 1 h around sunrise/sunset).
+# current_opt: [low, high] preferred share of the tidal cycle's peak current.
+# waves_ft: [flat_ok, opt_low, opt_high, too_rough] nearshore wave height.
+# structure: affinity 0-1 for spot structure tags (best match wins, others add).
+# diet: weights over baitfish groups (empty = invertebrate feeder).
+# storm: multipliers before / during / after (12-72 h) storm events.
+# ---------------------------------------------------------------------------
+
+reference_latitude: 40.7
+latitude_shift_days_per_degree: 6      # migrations arrive later / leave earlier further north
+water_body_shift_days: {bay: -5, ocean: 0, sound: 6}   # +: fall run later / spring later
+
+species:
+  striped_bass:
+    name: Striped Bass
+    short: Bass
+    color: "#38bdf8"
+    temp_f: [44, 52, 66, 76]
+    season: [[1, 0.15], [74, 0.2], [105, 0.5], [130, 0.9], [156, 0.85], [182, 0.45], [227, 0.35], [258, 0.6], [288, 0.95], [319, 1.0], [339, 0.7], [365, 0.2]]
+    light: {night: 0.85, dawn: 1.0, day: 0.45, dusk: 1.0}
+    overcast_day_bonus: 0.2
+    current_opt: [0.35, 0.95]
+    slack_score: 0.3
+    preferred_tide: {beach: [low_incoming, mid_incoming, high_outgoing], inlet: [outgoing, incoming], jetty: [incoming, outgoing], river_mouth: [outgoing], bay: [outgoing], pier: [outgoing, incoming]}
+    onshore_wind_opt_mph: [6, 20]
+    waves_ft: [0.8, 1.5, 4.5, 8]
+    pressure: {falling_bonus: 0.25, rising_penalty: 0.15}
+    structure: {inlet: 1.0, jetty: 0.95, rocks: 0.9, point: 0.9, river_mouth: 0.9, rip: 0.95, channel_edge: 0.85, trough: 0.85, sandbar: 0.8, bar: 0.8, beach: 0.7, pier: 0.65, bay: 0.55}
+    diet: {adult_bunker: 0.3, peanut_bunker: 0.25, sand_eel: 0.25, silverside: 0.15, bay_anchovy: 0.05}
+    storm: {pre: 1.10, during: 0.55, post: 1.15}
+    fishability: {max_wind_mph: 30, max_wave_ft: 10}
+    presence_weights: {structure: 0.55, bait: 0.45}
+    feeding_weights: {current: 0.22, light: 0.24, tide_stage: 0.08, wind: 0.12, waves: 0.1, pressure: 0.08, bait: 0.12, temp_trend: 0.04}
+    regulation_key: striped_bass
+    tactics:
+      night: "Swim slow: bucktails, darters, needlefish, live eels"
+      low_light: "Swimming plugs (SP minnows), pencil poppers, bucktails with pork/soft trailer"
+      day: "Tins and teasers when sand eels are around; bucktails in the rips"
+      rough: "Bucktails and heavy metal; fish the white water and cuts"
+      bunker: "If adult bunker show: snag-and-drop live bunker or fish chunks on the bottom"
+
+  bluefish:
+    name: Bluefish
+    short: Blues
+    color: "#818cf8"
+    temp_f: [56, 63, 74, 82]
+    season: [[1, 0.0], [110, 0.0], [125, 0.15], [140, 0.6], [166, 0.9], [227, 1.0], [263, 0.95], [293, 0.6], [314, 0.25], [335, 0.05], [365, 0.0]]
+    light: {night: 0.45, dawn: 1.0, day: 0.85, dusk: 1.0}
+    overcast_day_bonus: 0.05
+    current_opt: [0.4, 1.0]
+    slack_score: 0.35
+    preferred_tide: {beach: [mid_incoming, high_outgoing], inlet: [outgoing, incoming], jetty: [incoming, outgoing], river_mouth: [outgoing], bay: [outgoing], pier: [outgoing, incoming]}
+    onshore_wind_opt_mph: [4, 18]
+    waves_ft: [0.5, 1.0, 5.0, 9]
+    pressure: {falling_bonus: 0.15, rising_penalty: 0.1}
+    structure: {inlet: 1.0, rip: 1.0, point: 0.9, jetty: 0.85, beach: 0.8, channel_edge: 0.8, trough: 0.75, sandbar: 0.75, bar: 0.7, river_mouth: 0.7, pier: 0.7, bay: 0.6, rocks: 0.6}
+    diet: {peanut_bunker: 0.35, adult_bunker: 0.25, bay_anchovy: 0.2, silverside: 0.15, sand_eel: 0.05}
+    storm: {pre: 1.05, during: 0.6, post: 1.05}
+    fishability: {max_wind_mph: 28, max_wave_ft: 9}
+    presence_weights: {structure: 0.5, bait: 0.5}
+    feeding_weights: {current: 0.24, light: 0.16, tide_stage: 0.06, wind: 0.1, waves: 0.08, pressure: 0.06, bait: 0.26, temp_trend: 0.04}
+    regulation_key: bluefish
+    tactics:
+      day: "Poppers, metal (Hopkins, Kastmaster) and wire leaders"
+      low_light: "Pencil poppers and swimmers; birds working = blues on top"
+      night: "Cut bunker on the bottom"
+      rough: "Heavy metal in the wash"
+
+  fluke:
+    name: Fluke (Summer Flounder)
+    short: Fluke
+    color: "#f59e0b"
+    temp_f: [54, 60, 72, 80]
+    season: [[1, 0.0], [115, 0.0], [125, 0.3], [145, 0.8], [171, 1.0], [243, 1.0], [273, 0.8], [293, 0.4], [314, 0.05], [365, 0.0]]
+    light: {night: 0.1, dawn: 0.75, day: 1.0, dusk: 0.65}
+    overcast_day_bonus: 0.0
+    current_opt: [0.25, 0.8]
+    slack_score: 0.25
+    preferred_tide: {beach: [mid_incoming, high_outgoing], inlet: [incoming], jetty: [incoming], river_mouth: [incoming], bay: [incoming], pier: [incoming, outgoing]}
+    onshore_wind_opt_mph: [0, 10]
+    waves_ft: [0.0, 0.0, 2.0, 5]
+    pressure: {falling_bonus: 0.05, rising_penalty: 0.05}
+    structure: {channel_edge: 1.0, inlet: 0.95, bay: 0.9, pier: 0.85, sandbar: 0.85, trough: 0.8, beach: 0.75, river_mouth: 0.7, bar: 0.8, jetty: 0.6, point: 0.6, rip: 0.6, rocks: 0.35}
+    diet: {sand_eel: 0.4, silverside: 0.4, bay_anchovy: 0.2}
+    storm: {pre: 0.95, during: 0.4, post: 0.8}
+    fishability: {max_wind_mph: 22, max_wave_ft: 6}
+    presence_weights: {structure: 0.6, bait: 0.4}
+    feeding_weights: {current: 0.26, light: 0.2, tide_stage: 0.14, wind: 0.12, waves: 0.12, pressure: 0.04, bait: 0.1, temp_trend: 0.02}
+    regulation_key: fluke
+    tactics:
+      day: "Bucktail + Gulp! strip or spearing/squid; work channel edges on the drift"
+      low_light: "Slow-drag bucktails along drop-offs"
+      night: "Fluke rarely bite well at night"
+      rough: "Dirty water — fish the bay side or wait for it to clear"
+
+  blackfish:
+    name: Blackfish (Tautog)
+    short: Blackfish
+    color: "#a3a3a3"
+    temp_f: [44, 50, 63, 70]
+    season: [[1, 0.1], [80, 0.3], [95, 0.6], [115, 0.9], [140, 0.6], [180, 0.3], [243, 0.3], [274, 0.6], [298, 1.0], [329, 0.95], [349, 0.5], [365, 0.15]]
+    light: {night: 0.1, dawn: 0.7, day: 1.0, dusk: 0.6}
+    overcast_day_bonus: 0.0
+    current_opt: [0.05, 0.5]
+    slack_score: 0.75
+    preferred_tide: {beach: [high_outgoing, low_incoming], inlet: [slack_window], jetty: [slack_window], river_mouth: [slack_window], bay: [slack_window], pier: [slack_window]}
+    onshore_wind_opt_mph: [0, 12]
+    waves_ft: [0.0, 0.0, 2.0, 4.5]
+    pressure: {falling_bonus: 0.05, rising_penalty: 0.05}
+    structure: {jetty: 1.0, rocks: 1.0, pier: 0.85, point: 0.6, inlet: 0.6, rip: 0.4, river_mouth: 0.4, channel_edge: 0.4, bay: 0.35, beach: 0.1, sandbar: 0.05, trough: 0.1, bar: 0.1}
+    structure_required: true
+    diet: {}
+    storm: {pre: 0.9, during: 0.3, post: 0.75}
+    fishability: {max_wind_mph: 22, max_wave_ft: 5}
+    presence_weights: {structure: 1.0, bait: 0.0}
+    feeding_weights: {current: 0.3, light: 0.25, tide_stage: 0.14, wind: 0.12, waves: 0.15, pressure: 0.04, bait: 0.0, temp_trend: 0.0}
+    regulation_key: blackfish
+    tactics:
+      day: "Green crabs or Asian crabs on a jig/rig tight to the rocks; fish the slack-tide windows"
+      low_light: "Fish slow, close to the rocks"
+      night: "Tog rarely feed at night"
+      rough: "Stay off wet jetties in swell — safety first"
+
+  porgy:
+    name: Porgy (Scup)
+    short: Porgy
+    color: "#f472b6"
+    temp_f: [52, 58, 72, 80]
+    season: [[1, 0.0], [120, 0.0], [130, 0.4], [152, 0.9], [182, 1.0], [263, 1.0], [288, 0.6], [309, 0.25], [334, 0.05], [365, 0.0]]
+    light: {night: 0.2, dawn: 0.8, day: 1.0, dusk: 0.7}
+    overcast_day_bonus: 0.0
+    current_opt: [0.2, 0.7]
+    slack_score: 0.45
+    preferred_tide: {beach: [mid_incoming, high_outgoing], inlet: [incoming, outgoing], jetty: [incoming, outgoing], river_mouth: [incoming], bay: [incoming, outgoing], pier: [incoming, outgoing]}
+    onshore_wind_opt_mph: [0, 12]
+    waves_ft: [0.0, 0.0, 2.5, 5]
+    pressure: {falling_bonus: 0.05, rising_penalty: 0.05}
+    structure: {pier: 1.0, rocks: 0.95, jetty: 0.9, channel_edge: 0.85, bay: 0.8, point: 0.7, inlet: 0.65, river_mouth: 0.55, rip: 0.5, beach: 0.35, trough: 0.4, sandbar: 0.3, bar: 0.35}
+    diet: {}
+    storm: {pre: 0.95, during: 0.4, post: 0.8}
+    fishability: {max_wind_mph: 24, max_wave_ft: 6}
+    presence_weights: {structure: 1.0, bait: 0.0}
+    feeding_weights: {current: 0.26, light: 0.26, tide_stage: 0.1, wind: 0.13, waves: 0.15, pressure: 0.05, bait: 0.0, temp_trend: 0.05}
+    regulation_key: porgy
+    tactics:
+      day: "Hi-lo rig with clam strips or squid; small hooks; chum with clam"
+      low_light: "Clam or squid on the bottom near structure"
+      night: "Slow at night"
+      rough: "Move to sheltered piers"
+
+baitfish:
+  adult_bunker:
+    name: Adult bunker (menhaden)
+    temp_f: [50, 58, 72, 80]
+    season: [[1, 0.0], [100, 0.05], [115, 0.4], [135, 0.9], [181, 0.75], [227, 0.7], [263, 0.9], [293, 1.0], [324, 0.6], [345, 0.15], [365, 0.0]]
+    habitat: {ocean: 0.9, bay: 0.75, sound: 0.8}
+    environment: {inlet: 0.95, beach: 0.85, jetty: 0.85, river_mouth: 0.7, bay: 0.7, pier: 0.6}
+    wind_push: 0.6
+    tide_pref: any
+  peanut_bunker:
+    name: Peanut bunker (young menhaden)
+    temp_f: [52, 58, 74, 80]
+    season: [[1, 0.0], [196, 0.0], [213, 0.3], [244, 0.8], [274, 1.0], [304, 0.9], [324, 0.4], [339, 0.1], [365, 0.0]]
+    habitat: {ocean: 0.75, bay: 1.0, sound: 0.85}
+    environment: {inlet: 1.0, bay: 1.0, pier: 0.9, river_mouth: 0.95, jetty: 0.8, beach: 0.7}
+    wind_push: 0.8
+    tide_pref: outgoing
+  sand_eel:
+    name: Sand eels (sand lance)
+    temp_f: [40, 45, 62, 70]
+    season: [[1, 0.3], [60, 0.4], [91, 0.8], [130, 1.0], [166, 0.7], [196, 0.3], [243, 0.3], [274, 0.6], [309, 0.9], [339, 0.7], [365, 0.4]]
+    habitat: {ocean: 1.0, sound: 0.7, bay: 0.3}
+    environment: {beach: 1.0, inlet: 0.9, jetty: 0.7, river_mouth: 0.5, bay: 0.3, pier: 0.3}
+    wind_push: 0.3
+    tide_pref: moving
+  bay_anchovy:
+    name: Bay anchovies (rainfish)
+    temp_f: [55, 62, 76, 82]
+    season: [[1, 0.0], [166, 0.1], [196, 0.5], [227, 0.9], [258, 1.0], [288, 0.8], [314, 0.3], [334, 0.05], [365, 0.0]]
+    habitat: {bay: 1.0, sound: 0.85, ocean: 0.55}
+    environment: {inlet: 1.0, bay: 1.0, pier: 0.9, river_mouth: 0.85, jetty: 0.75, beach: 0.6}
+    wind_push: 0.7
+    tide_pref: outgoing
+  silverside:
+    name: Silversides (spearing)
+    temp_f: [42, 50, 72, 80]
+    season: [[1, 0.4], [91, 0.5], [121, 0.7], [227, 0.7], [258, 0.9], [288, 1.0], [319, 0.9], [349, 0.5], [365, 0.4]]
+    habitat: {bay: 1.0, sound: 0.9, ocean: 0.65}
+    environment: {inlet: 0.9, bay: 1.0, pier: 0.9, river_mouth: 0.95, beach: 0.7, jetty: 0.75}
+    wind_push: 0.5
+    tide_pref: outgoing
+
+# Storm detection thresholds (configurable — effects above are per species).
+storm:
+  wind_mph: 25           # sustained wind threshold
+  min_hours: 3           # sustained for at least this long
+  offshore_wave_ft: 8    # or offshore significant wave height above this
+  pressure_drop_12h_hpa: -8
+  post_window_hours: 72
+  pre_window_hours: 12

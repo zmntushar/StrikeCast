@@ -1,0 +1,36 @@
+# New York Marine District recreational limits — REFERENCE ONLY.
+# Sources: NYSDEC "Recreational Saltwater Fishing Limits" (2024 table) and
+# public reporting on the 2026 MRAC/ASMFC process. Regulations change; ALWAYS
+# confirm at https://dec.ny.gov/things-to-do/saltwater-fishing or (631) 444-0430
+# before keeping fish. Anglers 16+ must enroll (free) in the NY Recreational
+# Marine Fishing Registry.
+last_reviewed: "2026-10-23"
+verify_url: https://dec.ny.gov/things-to-do/saltwater-fishing/recreational-fishing-regulations
+registry_url: https://dec.ny.gov/things-to-do/saltwater-fishing/recreational-marine-fishing-registry
+
+regulations:
+  striped_bass:
+    open: [["04-15", "12-15"]]
+    size: "28-31 in slot"
+    bag: "1 per day"
+    note: "Marine waters south of the George Washington Bridge. Circle hooks required with natural bait."
+  bluefish:
+    open: [["01-01", "12-31"]]
+    size: "No minimum"
+    bag: "3 per day (5 proposed for 2026 — verify)"
+    note: "2026 rulemaking to match ASMFC/MAFMC plans; confirm adoption."
+  fluke:
+    open: [["05-04", "10-15"]]
+    size: "19 in (19.5 in late season) — verify"
+    bag: "3 per day"
+    note: "2026 kept status quo vs 2025; season split dates vary by year."
+  blackfish:
+    open: [["04-01", "04-30"], ["10-15", "12-22"]]
+    size: "16 in"
+    bag: "2 in April, 4 in fall (NY Bight). LI Sound: Oct 11 - Dec 9, 3 fish."
+    note: "Long Island Sound region has different fall dates."
+  porgy:
+    open: [["05-01", "12-31"]]
+    size: "9.5 in (shore) / 11 in (vessel)"
+    bag: "30 per day"
+    note: "Party/charter: 40 fish Sept 1 - Oct 31."

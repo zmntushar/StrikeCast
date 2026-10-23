@@ -1,0 +1,569 @@
+# Project Instructions: AI Fishing Intelligence & Forecasting Platform
+
+## Project Objective
+
+Build a production-quality, modular Python application that forecasts baitfish concentration, striped bass presence, and feeding activity for coastal fishing locations in the United States.
+
+The application must combine real-time and historical environmental data, tidal dynamics, lunar cycles, oceanographic conditions, geographical features, seasonal migration patterns, and eventually machine learning.
+
+**Primary objective:** Given a ZIP code, geographic coordinates, or named fishing location, identify the most promising nearby fishing locations and forecast optimal fishing windows over the next 7 days.
+
+Initial geographic focus: Long Island, New York, including Democrat Point, Fire Island Inlet, Point Lookout, Jones Inlet, Long Beach, and the Nissequogue River mouth.
+
+Design the system to expand to other coastal regions and fish species.
+
+## 1. Technology Stack
+
+Use the following architecture:
+
+- Backend: Python 3.12+, FastAPI, Pydantic
+- Frontend: Streamlit initially, with a modular API suitable for a future React frontend
+- Database: SQLite initially, with SQLAlchemy and a PostgreSQL migration path
+- Geospatial processing: GeoPandas, Shapely, PyProj
+- Data analysis: Pandas, NumPy, SciPy
+- Machine learning: Scikit-learn, XGBoost
+- Mapping: Folium or PyDeck
+- Visualization: Plotly
+- Scheduling: APScheduler
+- HTTP requests: HTTPX with asynchronous support
+- Testing: Pytest
+- Configuration: Environment variables and `.env` file
+
+Implement type hints, structured logging, reusable modules, error handling, caching, and unit tests.
+
+## 2. User Interface
+
+Create an interactive dashboard with the following inputs:
+
+**Location selection**
+- ZIP code
+- Named fishing location
+- Latitude and longitude
+- Search radius (5–50 miles)
+- Fishing environment: beach, inlet, jetty, river mouth, bay
+
+**Forecast selection**
+- Date
+- Time range
+- Forecast horizon (24 hours, 3 days, 7 days)
+- Target species, initially striped bass
+- Shore-based fishing by default
+
+Display a location map showing nearby fishing areas, with color-coded predictions.
+
+Include a forecast timeline, environmental conditions, probability estimates, and recommended fishing windows.
+
+All timestamps must be displayed in the selected location's local timezone.
+
+## 3. Environmental Data Collection Engine
+
+Implement independent data-provider adapters with standardized output schemas.
+
+### A. Weather Data
+
+Integrate NOAA/National Weather Service and other available weather providers.
+
+Collect:
+
+- Air temperature
+- Wind speed and direction
+- Wind gusts
+- Atmospheric pressure
+- Pressure tendency over 3, 6, 12, and 24 hours
+- Precipitation
+- Cloud coverage
+- Visibility
+- Sunrise and sunset
+
+Derive onshore and offshore wind components based on the orientation of each fishing location.
+
+### B. Oceanographic Data
+
+Integrate available NOAA marine observations, NDBC buoy data, and suitable ocean forecast products.
+
+Collect:
+
+- Sea surface temperature
+- Water temperature trends
+- Significant wave height
+- Dominant wave period
+- Wave direction
+- Swell direction and period
+- Surface current speed and direction, where available
+- Salinity and turbidity, where available
+
+Distinguish offshore buoy measurements from nearshore surf conditions.
+
+Select observation stations based on geography, station relevance, and data availability rather than simply choosing the closest station.
+
+Record observation age and station distance.
+
+### C. Tides and Currents
+
+Use NOAA CO-OPS predictions and observations.
+
+Collect:
+
+- High tide times
+- Low tide times
+- Predicted water levels
+- Observed water levels
+- Tidal range
+- Flood and ebb phases
+- Estimated tidal velocity where supported
+- Water-level anomalies
+- Time since the previous tidal turning point
+- Time until the next tidal turning point
+
+Do not assume that maximum current occurs exactly halfway between high and low tide.
+
+Use actual current predictions when available. Otherwise, clearly label current estimates as proxies.
+
+Calculate tide stage for every hourly forecast interval.
+
+### D. Lunar and Solar Data
+
+Calculate:
+
+- Moon phase
+- Lunar illumination
+- Moonrise and moonset
+- Lunar transit
+- Spring and neap tide proximity
+- Sunrise and sunset
+- Civil twilight
+
+Treat moon phase and tidal range as separate features because moon phase alone does not determine local tidal strength.
+
+### E. Seasonal Migration
+
+Develop a configurable seasonal model using:
+
+- Day of year
+- Geographic latitude
+- Historical sea temperature
+- Recent temperature trends
+- Seasonal migration windows
+- Regional spawning and migration patterns
+
+Initially support striped bass migration along the northeastern Atlantic coast.
+
+Seasonality must be location-specific.
+
+## 4. Geographic Fishing Intelligence
+
+Create a geospatial engine to identify and classify:
+
+- Inlets
+- River mouths
+- Sandbars
+- Troughs
+- Channel edges
+- Drop-offs
+- Jetties
+- Points
+- Current constrictions
+- Adjacent shallow and deep water
+
+Use available coastline datasets, NOAA nautical chart information, bathymetry, and suitable public geospatial datasets.
+
+Calculate geographic features such as:
+
+- Distance to nearest inlet
+- Distance to navigational channel
+- Bathymetric slope
+- Nearby depth variation
+- Distance to river mouth
+- Shoreline orientation
+- Exposure to wind and swell
+- Presence of potential current breaks
+
+Do not infer exact underwater structures from low-resolution bathymetry.
+
+Store source resolution and geographic uncertainty.
+
+## 5. Baitfish Concentration Prediction Engine
+
+Develop a scoring engine estimating environmental conditions favorable to baitfish aggregation.
+
+Candidate features:
+
+- Sea surface temperature
+- Water temperature change
+- Wind direction relative to shoreline
+- Wind duration
+- Wave height and period
+- Current speed
+- Tidal phase
+- Tidal range
+- Bathymetric transitions
+- Inlet proximity
+- Seasonal migration
+- Recent storm activity
+- Time since storm passage
+- Historical baitfish observations
+
+Initially use a configurable, rule-based **Baitfish Habitat Suitability Index** ranging from 0 to 100.
+
+Clearly label this index as an environmental suitability score, not a statistically calibrated probability.
+
+Allow different baitfish groups, including:
+
+- Adult bunker (menhaden)
+- Peanut bunker
+- Sand eels
+- Bay anchovies
+- Silversides
+
+Avoid assuming all baitfish respond identically to environmental conditions.
+
+When historical observations become available, train species-specific predictive models.
+
+## 6. Striped Bass Presence Prediction
+
+Build a separate model estimating conditions favorable to striped bass presence.
+
+Inputs should include:
+
+- Predicted baitfish concentration
+- Water temperature
+- Migration season
+- Water depth
+- Tidal current
+- Shoreline structure
+- Inlet proximity
+- Historical striped bass sightings
+- Historical catch records
+
+Initially calculate a Striped Bass Habitat Suitability Index.
+
+Later, train a supervised model to estimate the probability of striped bass presence within a defined geographic cell and time interval.
+
+## 7. Feeding Activity Prediction
+
+Build a third model for striped bass feeding activity.
+
+Inputs:
+
+- Baitfish concentration score
+- Bass presence score
+- Tidal movement
+- Current velocity
+- Time of day
+- Solar elevation
+- Water clarity
+- Wave conditions
+- Wind conditions
+- Temperature trends
+- Atmospheric pressure trends
+
+Output an hourly feeding activity index from 0 to 100.
+
+Keep the feeding activity index distinct from catch probability.
+
+Actual catch probability also depends on lure selection, angler skill, casting reach, fish behavior, and effort.
+
+## 8. Storm and Nor'easter Analysis
+
+Implement a storm-impact analysis module.
+
+Identify potential storm events from combinations of:
+
+- Wind speed and direction
+- Wave height
+- Wave period
+- Pressure trends
+- Coastal water-level anomalies
+
+Calculate:
+
+- Storm intensity indicators
+- Hours since storm onset
+- Hours since peak wave conditions
+- Hours since storm passage
+- Wave-height trend
+- Wind-direction changes
+- Recovery of nearshore conditions
+
+Evaluate potential changes in baitfish concentration and feeding conditions before, during, and after storms.
+
+Do not hard-code the assumption that storms always reduce fishing quality.
+
+Make storm-related effects configurable and eventually learn them from observations.
+
+## 9. Historical Comparison Engine
+
+This is a major application feature.
+
+Allow users to compare two dates at the same fishing location.
+
+Example:
+
+Location: Democrat Point, New York
+
+Date A: October 10, 2026
+
+Date B: October 22, 2026
+
+Retrieve the best available historical environmental observations and clearly distinguish observed data from hindcasts, forecasts, and missing data.
+
+Compare:
+
+- Wind speed and direction
+- Atmospheric pressure
+- Wave height and period
+- Water temperature
+- Tidal range
+- Tidal phase
+- Current estimates
+- Moon phase
+- Storm conditions
+- Seasonal factors
+
+Display a side-by-side comparison with charts and a feature-difference analysis.
+
+Generate a plain-English explanation of which conditions differed and how those differences might influence baitfish and striped bass activity.
+
+Do not claim that environmental differences caused a particular catch outcome without supporting evidence.
+
+## 10. Machine Learning Architecture
+
+Design the system so it can transition from heuristic scoring to data-driven prediction.
+
+Potential models:
+
+- Logistic Regression for baseline classification
+- Random Forest
+- XGBoost
+- Gradient Boosting
+- Optional spatiotemporal models later
+
+Create separate targets for:
+
+1. Baitfish observation or concentration
+2. Striped bass presence
+3. Active feeding events
+
+Support historical observations with:
+
+- Location
+- Timestamp
+- Species
+- Baitfish sightings
+- Birds diving
+- Surface blitz observed
+- Fish caught
+- Fish length
+- Lure used
+- Fishing effort duration
+- Number of anglers
+- Water conditions
+- Data source
+
+Distinguish verified observations, user-reported observations, and inferred information.
+
+Account for observation bias: a lack of reported catches does not establish that fish were absent.
+
+Use chronological and geographic validation splits to avoid data leakage.
+
+Evaluate with:
+
+- Precision and recall
+- ROC-AUC and PR-AUC where appropriate
+- Brier score
+- Probability calibration
+- Geographic generalization
+- Performance by season
+
+Only label model outputs as probabilities after appropriate training and calibration.
+
+## 11. Fishing Forecast Dashboard
+
+Build a professional dashboard with the following sections.
+
+### Overview
+
+Show:
+
+- Selected location
+- Current conditions
+- Baitfish suitability index
+- Striped bass habitat suitability index
+- Feeding activity index
+- Data freshness
+- Forecast confidence or data-quality rating
+
+### Seven-Day Forecast
+
+Create an hourly timeline showing:
+
+- Tide phase
+- Water temperature
+- Wind speed
+- Wave height
+- Baitfish score
+- Bass presence score
+- Feeding activity score
+
+Highlight the highest-scoring fishing windows.
+
+### Interactive Map
+
+Display nearby coastal locations and geospatial features.
+
+Use heatmaps only where the underlying spatial resolution supports them.
+
+Allow the user to select locations for detailed forecasts.
+
+### Historical Comparison
+
+Provide two-date comparison charts and an explanatory summary.
+
+### Forecast Explanation
+
+Generate explanations such as:
+
+"Conditions are favorable for feeding activity because the incoming tide is generating sustained current near the inlet, water temperatures are within the configured seasonal range, and the current wind direction may concentrate bait near the shoreline."
+
+Explain the contribution of each factor rather than presenting an unexplained score.
+
+## 12. Data Reliability and Fallbacks
+
+For each external provider:
+
+- Implement retry logic with exponential backoff.
+- Cache responses according to provider-specific update intervals.
+- Handle rate limits.
+- Record provider names and timestamps.
+- Preserve measurement units.
+- Normalize all timestamps to UTC internally.
+- Convert to local timezone for display.
+- Store missing values explicitly.
+
+Never fabricate observations or substitute unrelated weather stations without identifying the substitution.
+
+If a source is unavailable, show which features are missing and lower the data-quality rating.
+
+Maintain a distinction between measured, predicted, interpolated, and heuristic values.
+
+## 13. Suggested Project Structure
+
+```text
+fishing_intelligence/
+├── app/
+│   ├── main.py
+│   ├── api/
+│   ├── core/
+│   ├── providers/
+│   │   ├── weather.py
+│   │   ├── tides.py
+│   │   ├── marine.py
+│   │   ├── lunar.py
+│   │   └── geography.py
+│   ├── features/
+│   ├── models/
+│   │   ├── baitfish.py
+│   │   ├── striped_bass.py
+│   │   ├── feeding.py
+│   │   └── storms.py
+│   ├── services/
+│   ├── database/
+│   └── schemas/
+├── dashboard/
+│   └── streamlit_app.py
+├── tests/
+├── data/
+├── notebooks/
+├── configs/
+├── requirements.txt
+├── .env.example
+└── README.md
+```
+
+## 14. Implementation Phases
+
+### Phase 1 — Working MVP
+
+Build a functioning application supporting:
+
+- ZIP code and coordinate search
+- NOAA weather integration
+- NOAA tide predictions
+- Available marine observations and forecasts
+- Lunar calculations
+- Basic seasonal features
+- Hourly baitfish, bass, and feeding suitability scores
+- Seven-day forecast visualization
+- Historical date comparison
+- Streamlit dashboard
+
+Prioritize functioning API integrations and reliable data handling.
+
+### Phase 2 — Geospatial Intelligence
+
+Add:
+
+- Bathymetry
+- Inlet and shoreline structure analysis
+- Current and wave exposure features
+- Interactive maps
+- Multi-location comparison and ranking
+
+### Phase 3 — Observation Collection
+
+Build a database and interface for recording fishing trips, baitfish sightings, and striped bass activity.
+
+Support CSV import/export.
+
+### Phase 4 — Predictive Machine Learning
+
+Train models using historical observations and environmental features.
+
+Implement model evaluation, calibration, and explainability.
+
+### Phase 5 — Advanced Forecasting
+
+Add:
+
+- Spatial prediction maps
+- Storm-response models
+- Forecast verification
+- Personalized fishing recommendations
+- Optional alerts for high-scoring fishing windows
+
+## 15. Engineering Requirements
+
+Write clean, maintainable, testable code.
+
+Implement actual working functionality rather than placeholder methods.
+
+Include automated tests for tide calculations, timezone handling, data normalization, scoring, and missing-data scenarios.
+
+Use provider documentation to verify API endpoints, parameters, geographic coverage, and usage limits before implementation.
+
+Create a README with installation, configuration, execution, and testing instructions.
+
+Provide a `.env.example` listing all configuration variables.
+
+## 16. First Execution Task
+
+Begin by implementing Phase 1.
+
+Before coding:
+
+1. Inspect the existing repository and preserve existing files.
+2. Present the proposed architecture and implementation sequence.
+3. Identify available public data providers and verify their API contracts.
+4. Establish normalized schemas for all environmental data.
+5. Implement and test the data-ingestion layer.
+6. Build the three initial suitability scoring engines.
+7. Create the Streamlit dashboard.
+8. Run tests and provide startup instructions.
+
+Use Democrat Point, New York, as the initial demonstration location.
+
+Implement the historical comparison feature for October 10 and October 22, 2026.
+
+The finished MVP should let a user enter a coastal location, retrieve environmental information, view an hourly fishing suitability forecast, and understand the environmental factors contributing to each score.
+
+**Ultimate goal:** Build an evidence-driven fishing intelligence platform capable of learning from environmental patterns and real-world fishing observations to improve predictions of baitfish concentration and striped bass feeding activity over time.

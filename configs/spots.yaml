@@ -1,0 +1,396 @@
+# StrikeCast fishing spots
+# ---------------------------------------------------------------------------
+# Coordinates were snapped to the shoreline using NOAA NCEI CUDEM bathymetry
+# (1/9 arc-second, ~3 m) and checked against OpenStreetMap features.
+#
+# Field reference
+#   environment : beach | inlet | jetty | river_mouth | bay | pier
+#   water_body  : ocean | bay | sound
+#   facing_deg  : compass direction pointing from the shore OUT toward the water
+#                 (used for onshore/offshore wind and swell exposure)
+#   exposure    : 0-1 share of offshore wave energy that reaches this shoreline
+#                 (heuristic; 1.0 = open ocean surf, 0.05 = sheltered bay pier)
+#   structure   : features that matter to fish (inlet, jetty, rocks, point,
+#                 channel_edge, sandbar, trough, river_mouth, pier, bar)
+#   tide_station / current_station : NOAA CO-OPS station ids
+#   temp_sources / wave_sources     : ordered candidates "ndbc:<id>" | "coops:<id>"
+#                                     The first one with fresh data is used and
+#                                     its distance/age is reported.
+#   favorite    : always shown on the dashboard
+# ---------------------------------------------------------------------------
+
+timezone: America/New_York
+
+spots:
+  # ------------------------------ FAVORITES ------------------------------
+  - id: jones_beach_field_10
+    name: Jones Beach Field 10
+    short: JB Field 10
+    favorite: true
+    region: Nassau South Shore
+    lat: 40.60213
+    lon: -73.51478
+    environment: pier
+    water_body: bay
+    facing_deg: 343
+    exposure: 0.05
+    bottom: sand/mud
+    structure: [pier, channel_edge, bay]
+    tide_station: "8516225"
+    current_station: ACT3546
+    current_is_proxy: true
+    temp_sources: ["ndbc:44069", "ndbc:44065", "ndbc:44025"]
+    wave_sources: ["ndbc:44065"]
+    access: Bayside fishing pier off the Field 10 lot (Ocean Pkwy). NYS Parks hours apply.
+    notes: Sheltered bay pier on the State Boat Channel. Deep channel edge within casting range. Good for fluke, porgies, snapper blues and night bass.
+
+  - id: sunken_meadow_field_3
+    name: Sunken Meadow Field 3
+    short: Sunken Mdw F3
+    favorite: true
+    region: Suffolk North Shore
+    lat: 40.91148
+    lon: -73.25048
+    environment: beach
+    water_body: sound
+    facing_deg: 10
+    exposure: 0.3
+    bottom: sand/cobble
+    structure: [beach, river_mouth, bar, rocks]
+    tide_station: "8515586"
+    current_station: ACT3056
+    current_is_proxy: false
+    temp_sources: ["coops:8516945", "ndbc:44069"]
+    wave_sources: []
+    access: East end of Sunken Meadow State Park; walk east along the beach toward the Nissequogue River mouth.
+    notes: Long Island Sound beach next to the Nissequogue River mouth. Outgoing tide pulls bait out of the river.
+
+  - id: point_lookout_jetties
+    name: Point Lookout / Long Beach Jetties
+    short: Pt Lookout
+    favorite: true
+    region: Nassau South Shore
+    lat: 40.58530
+    lon: -73.58150
+    environment: jetty
+    water_body: ocean
+    facing_deg: 176
+    exposure: 0.85
+    bottom: sand/rock
+    structure: [jetty, rocks, inlet, trough]
+    tide_station: "8516385"
+    current_station: ACT3546
+    current_is_proxy: false
+    temp_sources: ["ndbc:44065", "ndbc:44025"]
+    wave_sources: ["ndbc:44065", "ndbc:44025"]
+    access: Hempstead Town Park, Point Lookout. Groins (jetties) run along the beach to the Jones Inlet jetty.
+    notes: Rock groins at the west side of Jones Inlet. Classic blackfish and bass rocks. Be careful on wet rocks in swell.
+
+  - id: jones_beach_field_2
+    name: Jones Beach Field 2
+    short: JB Field 2
+    favorite: true
+    region: Nassau South Shore
+    lat: 40.58908
+    lon: -73.52195
+    environment: beach
+    water_body: ocean
+    facing_deg: 165
+    exposure: 1.0
+    bottom: sand
+    structure: [beach, sandbar, trough]
+    tide_station: "8516385"
+    current_station: ACT3546
+    current_is_proxy: true
+    temp_sources: ["ndbc:44065", "ndbc:44025"]
+    wave_sources: ["ndbc:44065", "ndbc:44025"]
+    access: Ocean beach south of the Field 2 lot. Surf fishing permitted in designated areas; check NYS Parks rules.
+    notes: Open ocean surf. Look for cuts in the outer bar and troughs at lower tide stages.
+
+  - id: robert_moses_democrat_point
+    name: Robert Moses - Democrat Point
+    short: Democrat Pt
+    favorite: true
+    region: Suffolk South Shore
+    lat: 40.62098
+    lon: -73.30500
+    environment: inlet
+    water_body: ocean
+    facing_deg: 185
+    exposure: 0.8
+    bottom: sand
+    structure: [inlet, point, channel_edge, sandbar, rip]
+    tide_station: "8515228"
+    current_station: ACT3541
+    current_is_proxy: false
+    temp_sources: ["ndbc:44025", "ndbc:44065", "ndbc:44069"]
+    wave_sources: ["ndbc:44025", "ndbc:44065"]
+    access: Robert Moses Field 2, then walk west (or 4x4 with permit) to the inlet tip.
+    notes: West tip of Fire Island at Fire Island Inlet. Strong rips form off the point on both tides.
+
+  # ------------------------------ NEARBY SPOTS ---------------------------
+  - id: captree
+    name: Captree State Park
+    short: Captree
+    favorite: false
+    region: Suffolk South Shore
+    lat: 40.63613
+    lon: -73.26300
+    environment: pier
+    water_body: bay
+    facing_deg: 170
+    exposure: 0.15
+    bottom: sand
+    structure: [pier, channel_edge, inlet]
+    tide_station: "8515186"
+    current_station: ACT3541
+    current_is_proxy: true
+    temp_sources: ["ndbc:44069", "ndbc:44025"]
+    wave_sources: ["ndbc:44025"]
+    access: Captree State Park fishing piers and bulkhead.
+    notes: Bay side of Fire Island Inlet; fast water along the channel.
+
+  - id: robert_moses_field_5
+    name: Robert Moses Field 5
+    short: RM Field 5
+    favorite: false
+    region: Suffolk South Shore
+    lat: 40.62478
+    lon: -73.24300
+    environment: beach
+    water_body: ocean
+    facing_deg: 171
+    exposure: 1.0
+    bottom: sand
+    structure: [beach, sandbar, trough]
+    tide_station: "8515186"
+    current_station: ACT3541
+    current_is_proxy: true
+    temp_sources: ["ndbc:44025", "ndbc:44065"]
+    wave_sources: ["ndbc:44025", "ndbc:44065"]
+    access: Robert Moses Field 5 ocean beach.
+    notes: Open surf beach east of the inlet.
+
+  - id: gilgo_beach
+    name: Gilgo Beach
+    short: Gilgo
+    favorite: false
+    region: Suffolk South Shore
+    lat: 40.61350
+    lon: -73.40200
+    environment: beach
+    water_body: ocean
+    facing_deg: 172
+    exposure: 1.0
+    bottom: sand
+    structure: [beach, sandbar, trough]
+    tide_station: "8515764"
+    current_station: ACT3541
+    current_is_proxy: true
+    temp_sources: ["ndbc:44025", "ndbc:44065"]
+    wave_sources: ["ndbc:44025", "ndbc:44065"]
+    access: Gilgo Beach (Town of Babylon) – check permit requirements.
+    notes: Ocean surf on the barrier beach between Jones and Fire Island inlets.
+
+  - id: jones_beach_west_end_2
+    name: Jones Beach West End 2 (Jones Inlet)
+    short: West End 2
+    favorite: false
+    region: Nassau South Shore
+    lat: 40.57848
+    lon: -73.56305
+    environment: jetty
+    water_body: ocean
+    facing_deg: 200
+    exposure: 0.8
+    bottom: sand/rock
+    structure: [jetty, inlet, rocks, channel_edge]
+    tide_station: "8516385"
+    current_station: ACT3546
+    current_is_proxy: false
+    temp_sources: ["ndbc:44065", "ndbc:44025"]
+    wave_sources: ["ndbc:44065", "ndbc:44025"]
+    access: West End 2 lot; fishing area by the Jones Inlet jetty (permit may be required at night).
+    notes: East side of Jones Inlet. Inlet rips and jetty structure.
+
+  - id: long_beach_lido
+    name: Long Beach Jetties (Lido)
+    short: Long Beach
+    favorite: false
+    region: Nassau South Shore
+    lat: 40.58264
+    lon: -73.65700
+    environment: jetty
+    water_body: ocean
+    facing_deg: 180
+    exposure: 0.95
+    bottom: sand/rock
+    structure: [jetty, rocks, beach, trough]
+    tide_station: "8516385"
+    current_station: ACT3551
+    current_is_proxy: true
+    temp_sources: ["ndbc:44065", "ndbc:44025"]
+    wave_sources: ["ndbc:44065"]
+    access: City of Long Beach ocean beach; rock groins every few blocks.
+    notes: Groin field along the Long Beach oceanfront.
+
+  - id: atlantic_beach_jetty
+    name: Atlantic Beach (East Rockaway Inlet)
+    short: Atlantic Bch
+    favorite: false
+    region: Nassau South Shore
+    lat: 40.58378
+    lon: -73.75205
+    environment: jetty
+    water_body: ocean
+    facing_deg: 200
+    exposure: 0.8
+    bottom: sand/rock
+    structure: [jetty, inlet, rocks]
+    tide_station: "8516881"
+    current_station: ACT3556
+    current_is_proxy: false
+    temp_sources: ["ndbc:44065"]
+    wave_sources: ["ndbc:44065"]
+    access: West end of Atlantic Beach at East Rockaway Inlet.
+    notes: Inlet jetty with deep water close.
+
+  - id: breezy_point_jetty
+    name: Breezy Point Jetty
+    short: Breezy Pt
+    favorite: false
+    region: Queens
+    lat: 40.55300
+    lon: -73.94095
+    environment: jetty
+    water_body: ocean
+    facing_deg: 260
+    exposure: 0.7
+    bottom: sand/rock
+    structure: [jetty, inlet, rocks, channel_edge]
+    tide_station: "8517394"
+    current_station: ACT3571
+    current_is_proxy: false
+    temp_sources: ["ndbc:44065"]
+    wave_sources: ["ndbc:44065"]
+    access: Breezy Point Tip (Gateway NRA); permit needed for vehicle access.
+    notes: Rockaway Inlet jetty at the entrance to Jamaica Bay.
+
+  - id: nissequogue_river_mouth
+    name: Nissequogue River Mouth
+    short: Nissequogue
+    favorite: false
+    region: Suffolk North Shore
+    lat: 40.90913
+    lon: -73.23595
+    environment: river_mouth
+    water_body: sound
+    facing_deg: 49
+    exposure: 0.15
+    bottom: sand/mud
+    structure: [river_mouth, channel_edge, bar]
+    tide_station: "8515586"
+    current_station: ACT3056
+    current_is_proxy: true
+    temp_sources: ["coops:8516945", "ndbc:44069"]
+    wave_sources: []
+    access: Short Beach (Smithtown) or the east end of Sunken Meadow.
+    notes: River mouth with a strong outgoing flow that funnels bait into the Sound.
+
+  - id: moriches_inlet
+    name: Moriches Inlet
+    short: Moriches
+    favorite: false
+    region: Suffolk South Shore
+    lat: 40.76400
+    lon: -72.75300
+    environment: inlet
+    water_body: ocean
+    facing_deg: 218
+    exposure: 0.8
+    bottom: sand/rock
+    structure: [inlet, jetty, channel_edge]
+    tide_station: "8513398"
+    current_station: null
+    current_is_proxy: true
+    temp_sources: ["ndbc:44025"]
+    wave_sources: ["ndbc:44025"]
+    access: Cupsogue Beach County Park (west side of the inlet).
+    notes: Inlet with jetties on both sides.
+
+  - id: shinnecock_inlet
+    name: Shinnecock Inlet
+    short: Shinnecock
+    favorite: false
+    region: East End
+    lat: 40.84000
+    lon: -72.47400
+    environment: inlet
+    water_body: ocean
+    facing_deg: 205
+    exposure: 0.8
+    bottom: sand/rock
+    structure: [inlet, jetty, rocks, channel_edge]
+    tide_station: "8512354"
+    current_station: ACT3536
+    current_is_proxy: false
+    temp_sources: ["coops:8510560", "ndbc:44025"]
+    wave_sources: ["ndbc:44025"]
+    access: Ponquogue / Shinnecock East County Park.
+    notes: Jetty-lined inlet with deep water and strong current.
+
+  - id: montauk_point
+    name: Montauk Point
+    short: Montauk
+    favorite: false
+    region: East End
+    lat: 41.07000
+    lon: -71.85791
+    environment: beach
+    water_body: ocean
+    facing_deg: 132
+    exposure: 0.9
+    bottom: rock
+    structure: [point, rocks, rip]
+    tide_station: "8510560"
+    current_station: ACT2401
+    current_is_proxy: false
+    temp_sources: ["coops:8510560", "ndbc:44025"]
+    wave_sources: ["ndbc:44025"]
+    access: Montauk Point State Park. Wear studded boots on the rocks.
+    notes: Boulder field at the point, the heart of the fall run.
+
+  - id: orient_point
+    name: Orient Point
+    short: Orient
+    favorite: false
+    region: East End
+    lat: 41.15928
+    lon: -72.24000
+    environment: beach
+    water_body: sound
+    facing_deg: 0
+    exposure: 0.4
+    bottom: rock/cobble
+    structure: [point, rocks, rip]
+    tide_station: "8511671"
+    current_station: ACT2721
+    current_is_proxy: false
+    temp_sources: ["coops:8510560"]
+    wave_sources: []
+    access: Orient Beach State Park / Orient Point County Park.
+    notes: Rips off the point toward Plum Gut.
+
+# Coastal features used for "distance to nearest inlet / river mouth" features.
+features:
+  inlets:
+    - {name: Rockaway Inlet, lat: 40.5600, lon: -73.9300}
+    - {name: East Rockaway Inlet, lat: 40.5880, lon: -73.7550}
+    - {name: Jones Inlet, lat: 40.5830, lon: -73.5700}
+    - {name: Fire Island Inlet, lat: 40.6250, lon: -73.3000}
+    - {name: Moriches Inlet, lat: 40.7650, lon: -72.7520}
+    - {name: Shinnecock Inlet, lat: 40.8400, lon: -72.4780}
+  river_mouths:
+    - {name: Nissequogue River, lat: 40.9100, lon: -73.2350}
+    - {name: Connetquot River, lat: 40.7200, lon: -73.1500}
+    - {name: Carmans River, lat: 40.7550, lon: -72.8930}

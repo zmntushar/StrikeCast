@@ -1,0 +1,44 @@
+# Observation / prediction stations used by StrikeCast.
+# Coordinates come from NOAA CO-OPS metadata API and NDBC activestations.xml.
+# kind: offshore_buoy | nearshore_buoy | bay_buoy | shore_station
+
+ndbc:
+  "44025": {name: "Long Island (30 nm S of Islip)", lat: 40.251, lon: -73.164, kind: offshore_buoy}
+  "44065": {name: "New York Harbor Entrance", lat: 40.368, lon: -73.701, kind: offshore_buoy}
+  "44069": {name: "Great South Bay (Stony Brook Univ.)", lat: 40.699, lon: -73.087, kind: bay_buoy}
+
+coops:
+  # tide prediction stations (S = subordinate: high/low only, R = harmonic)
+  "8516225": {name: "Deep Creek Meadow, Jones Beach", lat: 40.6033, lon: -73.525}
+  "8515586": {name: "Northport, Northport Bay", lat: 40.9000, lon: -73.3533}
+  "8516385": {name: "Jones Inlet (Point Lookout)", lat: 40.5867, lon: -73.5783}
+  "8515228": {name: "Democrat Point, Fire Island Inlet", lat: 40.6333, lon: -73.2933}
+  "8515186": {name: "Fire Island Coast Guard Station", lat: 40.6267, lon: -73.2600}
+  "8515764": {name: "Gilgo Heading", lat: 40.6200, lon: -73.3950}
+  "8516881": {name: "East Rockaway Inlet, Atlantic Beach", lat: 40.5950, lon: -73.7433}
+  "8517394": {name: "Barren Island, Rockaway Inlet", lat: 40.5783, lon: -73.8883}
+  "8513398": {name: "Moriches Inlet", lat: 40.7644, lon: -72.7560}
+  "8512354": {name: "Shinnecock Inlet (ocean)", lat: 40.8367, lon: -72.4800}
+  "8510560": {name: "Montauk, Fort Pond Bay", lat: 41.0483, lon: -71.9594}
+  "8511671": {name: "Orient", lat: 41.1367, lon: -72.3067}
+  # observation stations (water temperature / water level)
+  "8516945": {name: "Kings Point (water temp + level)", lat: 40.8103, lon: -73.7649}
+  "8531680": {name: "Sandy Hook, NJ (water level)", lat: 40.4669, lon: -74.0094}
+
+currents:
+  ACT3541: {name: "Fire Island Inlet, 0.5 mi S of Oak Beach", lat: 40.6297, lon: -73.3067, bin: 1}
+  ACT3546: {name: "Jones Inlet", lat: 40.5917, lon: -73.5667, bin: 1}
+  ACT3551: {name: "Long Beach, inside, between bridges", lat: 40.5950, lon: -73.6600, bin: 1}
+  ACT3556: {name: "East Rockaway Inlet", lat: 40.5900, lon: -73.7550, bin: 1}
+  ACT3571: {name: "Rockaway Point", lat: 40.5363, lon: -73.9413, bin: 1}
+  ACT3056: {name: "Crane Neck Point, 3.7 mi WSW", lat: 40.9383, lon: -73.2312, bin: 1}
+  ACT3536: {name: "Shinnecock Inlet", lat: 40.8433, lon: -72.4783, bin: 1}
+  ACT2401: {name: "Montauk Point, 1.2 mi E", lat: 41.0750, lon: -71.8300, bin: 1}
+  ACT2721: {name: "Orient Point, 1 mi WNW", lat: 41.1667, lon: -72.2517, bin: 1}
+
+# Reference water-level stations (observed vs predicted) used for storm-surge /
+# water-level anomaly. Chosen per water body; the substitution is always shown.
+water_level_reference:
+  ocean: "8531680"
+  bay: "8531680"
+  sound: "8516945"

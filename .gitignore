@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Local virtual environment (packages stay on this machine)
+.venv/
+venv/
+
+# Local data: HTTP cache, your fishing log and trained models
+data/*.db
+data/*.db-wal
+data/*.db-shm
+data/models/
+
+# Secrets / local config
+.env
+
+# Editor / tooling
+.vscode/
+.idea/
+.claude/
+*.log
