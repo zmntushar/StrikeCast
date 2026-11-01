@@ -10,4 +10,5 @@ sys.path.insert(0, str(ROOT))
 _TMP = tempfile.mkdtemp(prefix="strikecast_test_")
 os.environ["STRIKECAST_DATABASE_URL"] = f"sqlite:///{Path(_TMP, 'test.db').as_posix()}"
 os.environ["STRIKECAST_SCHEDULER_ENABLED"] = "false"
+os.environ["STRIKECAST_MY_SPOTS_FILE"] = str(Path(_TMP, "my_spots.json"))
 os.environ["STRIKECAST_HTTP_MAX_RETRIES"] = "1"

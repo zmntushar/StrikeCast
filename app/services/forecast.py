@@ -30,6 +30,7 @@ from app.models.presence import bait_availability, presence_scores
 from app.models.storms import detect_storms
 from app.providers import geography, lunar, marine, nws_marine, tides, weather
 from app.schemas.env import Alert, DataKind, SourceInfo, Spot, TideEvent, Window
+from app.services import my_spots
 from app.services import surf as surf_svc
 from app.services.stations import distance_to, station_meta
 
@@ -46,9 +47,14 @@ TEXT_COLS = ["short_forecast", "tide_dir", "tide_stage", "tide_stage_tag", "next
 
 # ------------------------------------------------------------------ spots
 def load_spots() -> list[Spot]:
+    """Configured spots plus saved searched places; `favorite` = in the user's saved list."""
     cfg = spots_config()
     tz = cfg.get("timezone", get_settings().default_timezone)
-    return [Spot(**{**s, "timezone": tz}) for s in cfg["spots"]]
+    favs = set(my_spots.saved_ids())
+    spots = [Spot(**{**s, "timezone": tz, "favorite": s["id"] in favs}) for s in cfg["spots"]]
+    known = {s.id for s in spots}
+    spots += [Spot(**{**c, "favorite": True, "custom": True}) for c in my_spots.saved_custom() if c["id"] not in known]
+    return spots
 
 
 def get_spot(spot_id: str) -> Spot:

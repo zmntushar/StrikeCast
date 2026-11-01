@@ -15,7 +15,7 @@ No API keys. No subscriptions. Every data source is free and public.
 | | |
 |---|---|
 | 🎯 **Best bet right now** | Scans every spot and species for the next 24 h and explains the top pick in plain English, with a lure/bait suggestion. |
-| ★ **Your spots, always on screen** | Jones Beach Field 10 · Sunken Meadow Field 3 · Point Lookout / Long Beach jetties · Jones Beach Field 2 · Robert Moses – Democrat Point (plus 12 more LI spots). |
+| ★ **Your spots, always on screen** | Jones Beach Field 10 · Sunken Meadow Field 3 · Point Lookout / Long Beach jetties · Jones Beach West End 2 · Robert Moses – Democrat Point (plus 12 more LI spots). Add or remove spots from the sidebar (**★ Manage my spots**). |
 | 🗺️ **Map with legend** | Spots colored by Bite Index. Satellite, NOAA nautical chart, OpenSeaMap and ocean-depth layers. Zoom into a spot to see **drop-offs, troughs, channels, bars and numbered cast targets** computed from NOAA's ~3 m bathymetry. |
 | 📈 **7-day hourly forecast** | Bite Index per species, tide curve + official current predictions, wind with direction arrows, surf and water temperature, night shading and highlighted best windows. |
 | 🔎 **Explain any hour** | Factor-by-factor breakdown (current, tide stage, light, wind, surf, pressure trend, bait, season, water temp…). |
@@ -139,7 +139,13 @@ StrikeCast follows a **transparent, configurable, rule-based** approach (see [`c
 
 ## Adding your own spots
 
-Add an entry to [`configs/spots.yaml`](configs/spots.yaml) (set `favorite: true` to pin it), or use **ZIP code**,
+**Your spots** is editable in the dashboard: open **★ Manage my spots** in the sidebar to add any listed spot or remove one
+(✕), or press **✕ Remove from my spots** under a card. To save a place that isn't listed, find it with **Coordinates** or
+**Search a place** and press **☆ Save to my spots** on its card. Your list is kept in `data/my_spots.json` (not committed);
+delete that file to go back to the defaults.
+
+To add a spot permanently for everyone, add an entry to [`configs/spots.yaml`](configs/spots.yaml) (`favorite: true` puts it
+in the default list) and re-run `scripts/compute_exposure.py`. You can also use **ZIP code**,
 **Coordinates** or **Search a place** in the sidebar. For a custom point, StrikeCast automatically picks the nearest NOAA tide,
 current, water-temperature and buoy stations, and works out the shoreline orientation from bathymetry. That means it can be
 used on any US coast, but the species seasons are tuned for Long Island / the NY Bight.

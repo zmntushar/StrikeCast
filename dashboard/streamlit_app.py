@@ -25,6 +25,7 @@ from app.ml.train import model_exists, train_species  # noqa: E402
 from app.models.bite import explain_hour, narrative, score_label, season_status, tactic  # noqa: E402
 from app.models.common import species_list, species_meta  # noqa: E402
 from app.providers.geocode import geocode_name, geocode_zip  # noqa: E402
+from app.services import my_spots  # noqa: E402
 from app.services.compare import compare_dates  # noqa: E402
 from app.services.forecast import (collect, feature_snapshot, forecast_frame, get_spot,  # noqa: E402
                                    historical_frame, load_spots, run_sync)
@@ -44,7 +45,9 @@ st.markdown(CSS, unsafe_allow_html=True)
 SPECIES = species_list()
 ENVS = ["beach", "inlet", "jetty", "river_mouth", "bay", "pier"]
 ALL_SPOTS = load_spots()
-FAVS = [s for s in ALL_SPOTS if s.favorite]
+BY_ID = {s.id: s for s in ALL_SPOTS}
+FAVS = [BY_ID[i] for i in my_spots.saved_ids() if i in BY_ID]  # in the user's saved order
+FAV_IDS = {s.id for s in FAVS}
 TZ = ALL_SPOTS[0].timezone
 CACHE_MIN = 20
 LOGO = ('<svg width="30" height="30" viewBox="0 0 64 64" fill="none"><path d="M6 34c8-12 22-18 34-14 6 2 10 6 14 10-4 4-8 8-14 10'
@@ -55,10 +58,18 @@ ss = st.session_state
 
 # =============================================================== data access
 def fetch_forecasts(spots, force: bool, slot) -> dict:
-    key = tuple(sorted(s.id for s in spots))
     hit = ss.get("fc")
-    if hit and not force and hit["key"] == key and time.time() - hit["t"] < CACHE_MIN * 60:
-        return hit["data"]
+    fresh = bool(hit) and not force and time.time() - hit["t"] < CACHE_MIN * 60
+    have = hit["data"] if fresh else {}
+    todo = [s for s in spots if s.id not in have]
+    if todo:
+        ss["fc"] = {"t": hit["t"] if fresh else time.time(), "at": hit["at"] if fresh else datetime.now(timezone.utc),
+                    "data": {**have, **_collect(todo, slot)}}
+    want = {s.id for s in spots}
+    return {k: v for k, v in ss["fc"]["data"].items() if k in want}
+
+
+def _collect(spots, slot) -> dict:
     with slot.container():
         st.markdown('<div class="sc-card"><b>Collecting live data</b> <span class="sc-sub">· NOAA tides, currents, buoys, '
                     'NWS, Open-Meteo, bathymetry (cached locally after the first run)</span></div>', unsafe_allow_html=True)
@@ -70,7 +81,6 @@ def fetch_forecasts(spots, force: bool, slot) -> dict:
         data = run_sync(collect(spots, forecast_frame(7), cb))
         bar.progress(1.0, text="Done")
     slot.empty()
-    ss["fc"] = {"key": key, "t": time.time(), "data": data, "at": datetime.now(timezone.utc)}
     return data
 
 
@@ -98,13 +108,25 @@ with st.sidebar:
     custom = None
     custom_notes: list[str] = []
     search_center = None  # (lat, lon, label) for ZIP searches
-    focus_id = FAVS[0].id
+    focus_id = FAVS[0].id if FAVS else ALL_SPOTS[0].id
     if mode == "My spots":
-        names = {s.name: s.id for s in FAVS}
-        focus_id = names[st.selectbox("Focus spot", list(names), index=4 if len(names) > 4 else 0)]
+        if FAVS:
+            names = {s.name: s.id for s in FAVS}
+            ids = list(names.values())
+            default_i = ids.index("robert_moses_democrat_point") if "robert_moses_democrat_point" in ids else 0
+            focus_id = names[st.selectbox("Focus spot", list(names), index=default_i)]
+        else:
+            st.info("You have no saved spots yet — add some under ★ Manage my spots below.")
     elif mode == "Named spot":
         names = {s.name: s.id for s in ALL_SPOTS}
         focus_id = names[st.selectbox("Spot", list(names))]
+        if focus_id in FAV_IDS:
+            if st.button("✕ Remove from my spots", use_container_width=True, key="named_rm"):
+                my_spots.remove(focus_id)
+                st.rerun()
+        elif st.button("☆ Add to my spots", use_container_width=True, key="named_add"):
+            my_spots.add(focus_id)
+            st.rerun()
     else:
         env = (st.selectbox("Fishing environment here", ENVS, format_func=lambda e: e.replace("_", " ").title())
                if mode != "ZIP code" else None)
@@ -142,6 +164,21 @@ with st.sidebar:
             custom, custom_notes = custom_spot(loc["lat"], loc["lon"], env, loc["label"].split(",")[0][:28])
             focus_id = custom.id
             st.caption(f"📌 {loc['label']}")
+    with st.expander(f"★ Manage my spots ({len(FAVS)})", expanded=not FAVS):
+        for s in FAVS:
+            c_name, c_rm = st.columns([5, 1], vertical_alignment="center")
+            c_name.markdown(f"{'📌' if s.custom else '★'} {esc(s.name)}")
+            if c_rm.button("✕", key=f"side_rm_{s.id}", type="tertiary", help=f"Remove {s.name}"):
+                my_spots.remove(s.id)
+                st.rerun()
+        others = [s.id for s in ALL_SPOTS if s.id not in FAV_IDS]
+        add_id = st.selectbox("Add a spot", others, index=None, placeholder="＋ Add a spot…", label_visibility="collapsed",
+                              format_func=lambda i: BY_ID[i].name)
+        if add_id:
+            my_spots.add(add_id)
+            st.rerun()
+        st.caption("To save a place that isn't listed, find it with Coordinates or Search a place, "
+                   "then press ☆ Save to my spots on its card.")
     radius = st.slider("Search radius (miles)", 5, 50, 50)
     envs = st.multiselect("Fishing environments", ENVS, default=ENVS, format_func=lambda e: e.replace("_", " ").title())
 
@@ -158,7 +195,7 @@ with st.sidebar:
     st.caption("Data is cached locally per provider update cycle; refresh pulls anything that has expired.")
 
 # ================================================================== data
-spots_to_fetch = ALL_SPOTS + ([custom] if custom else [])
+spots_to_fetch = ALL_SPOTS + ([custom] if custom and custom.id not in BY_ID else [])
 focus_spot = custom or get_spot(focus_id)
 center = (search_center[0], search_center[1]) if search_center else (focus_spot.lat, focus_spot.lon)
 
@@ -169,6 +206,11 @@ try:
 except Exception as exc:  # noqa: BLE001
     st.error(f"Data collection failed: {exc}")
     st.stop()
+# Saved-spot changes don't refetch data, so refresh the ★ flag on cached forecasts.
+for _fc in forecasts.values():
+    _fc.spot.favorite = _fc.spot.id in FAV_IDS
+    if _fc.spot.id in BY_ID:  # a saved place may have been renamed
+        _fc.spot.name, _fc.spot.short = BY_ID[_fc.spot.id].name, BY_ID[_fc.spot.id].short
 
 
 def visible(fc) -> bool:
@@ -317,13 +359,25 @@ with tabs[0]:
     st.markdown(legend_html(), unsafe_allow_html=True)
     st.markdown("#### ★ Your spots")
     fav_fcs = [VIS[s.id] for s in FAVS if s.id in VIS]
+    if not fav_fcs:
+        st.info("No saved spots yet. Add some in the sidebar under **★ Manage my spots**, or search a place and save it.")
     for i in range(0, len(fav_fcs), 3):
         cols = st.columns(3)
         for col, fc in zip(cols, fav_fcs[i:i + 3]):
             col.markdown(spot_card(fc), unsafe_allow_html=True)
-    if custom and custom.id in VIS:
+            if col.button("✕ Remove from my spots", key=f"rm_{fc.spot.id}", type="tertiary"):
+                my_spots.remove(fc.spot.id)
+                st.rerun()
+    st.caption("Add, remove or search spots in the sidebar under ★ Manage my spots.")
+    if custom and custom.id in VIS and custom.id not in FAV_IDS:
         st.markdown("#### 📌 Your searched location")
         st.markdown(spot_card(VIS[custom.id]), unsafe_allow_html=True)
+        c1, c2 = st.columns([2, 1])
+        save_name = c1.text_input("Name", value=custom.name, key=f"save_name_{custom.id}", label_visibility="collapsed",
+                                  placeholder="Name this spot")
+        if c2.button("☆ Save to my spots", type="primary", use_container_width=True, key=f"save_{custom.id}"):
+            my_spots.save_custom(custom, (save_name or custom.name).strip())
+            st.rerun()
         for n in custom_notes:
             st.caption(n)
 

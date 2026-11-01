@@ -26,3 +26,6 @@ data/models/
 
 # Fishing-log CSV exports (personal data)
 strikecast_log*.csv
+
+# Your saved spots (personal)
+data/my_spots.json

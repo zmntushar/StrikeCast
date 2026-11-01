@@ -21,7 +21,8 @@
 #   temp_sources / wave_sources     : ordered candidates "ndbc:<id>" | "coops:<id>"
 #                                     The first one with fresh data is used and
 #                                     its distance/age is reported.
-#   favorite    : always shown on the dashboard
+#   favorite    : default "Your spots" list. Once you add/remove spots in the
+#                 dashboard, your choice is kept in data/my_spots.json instead.
 # ---------------------------------------------------------------------------
 
 timezone: America/New_York
@@ -92,27 +93,27 @@ spots:
     access: Hempstead Town Park, Point Lookout. Groins (jetties) run along the beach to the Jones Inlet jetty.
     notes: Rock groins at the west side of Jones Inlet. Classic blackfish and bass rocks. Be careful on wet rocks in swell.
 
-  - id: jones_beach_field_2
-    name: Jones Beach Field 2
-    short: JB Field 2
+  - id: jones_beach_west_end_2
+    name: Jones Beach West End 2 (Jones Inlet)
+    short: West End 2
     favorite: true
     region: Nassau South Shore
-    lat: 40.58908
-    lon: -73.52195
-    environment: beach
+    lat: 40.57848
+    lon: -73.56305
+    environment: jetty
     water_body: ocean
-    facing_deg: 165
+    facing_deg: 200
     marine_zone: ANZ355
     surf_zone: NYZ179
-    bottom: sand
-    structure: [beach, sandbar, trough]
+    bottom: sand/rock
+    structure: [jetty, inlet, rocks, channel_edge]
     tide_station: "8516385"
     current_station: ACT3546
-    current_is_proxy: true
+    current_is_proxy: false
     temp_sources: ["ndbc:44065", "ndbc:44025"]
     wave_sources: ["ndbc:44065", "ndbc:44025"]
-    access: Ocean beach south of the Field 2 lot. Surf fishing permitted in designated areas; check NYS Parks rules.
-    notes: Open ocean surf. Look for cuts in the outer bar and troughs at lower tide stages.
+    access: West End 2 lot; fishing area by the Jones Inlet jetty (permit may be required at night).
+    notes: East side of Jones Inlet. Inlet rips and jetty structure.
 
   - id: robert_moses_democrat_point
     name: Robert Moses - Democrat Point
@@ -202,27 +203,27 @@ spots:
     access: Gilgo Beach (Town of Babylon) – check permit requirements.
     notes: Ocean surf on the barrier beach between Jones and Fire Island inlets.
 
-  - id: jones_beach_west_end_2
-    name: Jones Beach West End 2 (Jones Inlet)
-    short: West End 2
+  - id: jones_beach_field_2
+    name: Jones Beach Field 2
+    short: JB Field 2
     favorite: false
     region: Nassau South Shore
-    lat: 40.57848
-    lon: -73.56305
-    environment: jetty
+    lat: 40.58908
+    lon: -73.52195
+    environment: beach
     water_body: ocean
-    facing_deg: 200
+    facing_deg: 165
     marine_zone: ANZ355
     surf_zone: NYZ179
-    bottom: sand/rock
-    structure: [jetty, inlet, rocks, channel_edge]
+    bottom: sand
+    structure: [beach, sandbar, trough]
     tide_station: "8516385"
     current_station: ACT3546
-    current_is_proxy: false
+    current_is_proxy: true
     temp_sources: ["ndbc:44065", "ndbc:44025"]
     wave_sources: ["ndbc:44065", "ndbc:44025"]
-    access: West End 2 lot; fishing area by the Jones Inlet jetty (permit may be required at night).
-    notes: East side of Jones Inlet. Inlet rips and jetty structure.
+    access: Ocean beach south of the Field 2 lot. Surf fishing permitted in designated areas; check NYS Parks rules.
+    notes: Open ocean surf. Look for cuts in the outer bar and troughs at lower tide stages.
 
   - id: long_beach_lido
     name: Long Beach Jetties (Lido)
