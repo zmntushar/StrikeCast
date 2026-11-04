@@ -59,12 +59,15 @@ DAY = date(2026, 11, 5)
 def test_every_recommended_interval_is_exactly_90_minutes(species):
     for d in (DAY, date(2026, 11, 6)):
         r = compute_window(inputs(with_current=True), species, d, now=PAST)
+        assert r.best is not None
         for p in (r.best, r.second):
-            assert p is not None
+            if p is None:          # daylight species may have only one window
+                continue
             assert p.end - p.start == pd.Timedelta(minutes=90)
             assert p.minutes == 90
         assert r.best.start.minute % 5 == 0  # 5-minute increments
-        assert abs(r.best.start - r.second.start) >= WINDOW  # runner-up does not overlap
+        if r.second is not None:
+            assert abs(r.best.start - r.second.start) >= WINDOW  # runner-up does not overlap
     c = compare_window(r, pd.Timestamp("2026-11-06 13:07", tz=TZ))["pick"]
     assert c.end - c.start == pd.Timedelta(minutes=90)
 
@@ -204,7 +207,8 @@ def test_daylight_saving_day_has_25_hours_of_starts():
 def test_today_prefers_upcoming_windows():
     noon = pd.Timestamp("2026-11-05 12:00", tz=TZ).tz_convert("UTC").to_pydatetime()
     r = compute_window(inputs(), "blackfish", DAY, now=noon)
-    assert r.best.start >= pd.Timestamp(noon) and r.second.start >= pd.Timestamp(noon)
+    assert r.best.start >= pd.Timestamp(noon)
+    assert r.second is None or r.second.start >= pd.Timestamp(noon)
     done = compute_window(inputs(), "blackfish", DAY, now=pd.Timestamp("2026-11-06 06:00", tz=TZ).to_pydatetime())
     assert done.elapsed and done.best is not None   # whole day passed: best-of-day shown for reference
 
@@ -301,9 +305,10 @@ def test_works_from_a_forecast_with_no_data():
 
 # ------------------------------------------------------------ consistency
 def test_time_of_day_limit_restricts_window_starts():
-    r = compute_window(inputs(), "fluke", DAY, now=PAST, tod=(5, 9))
+    r = compute_window(inputs(), "striped_bass", DAY, now=PAST, tod=(5, 20))
+    assert r.best is not None and r.second is not None
     for p in (r.best, r.second):
-        assert 5 <= p.start.tz_convert(TZ).hour < 9
+        assert 5 <= p.start.tz_convert(TZ).hour < 20
     none = compute_window(inputs(), "fluke", DAY, now=PAST, tod=(3, 3))
     assert none.best is None and none.second is None
 
@@ -323,6 +328,43 @@ def test_main_page_popover_shows_the_optimizer_windows():
     r = compute_window(inputs(with_current=True), "striped_bass", DAY, now=PAST)
     fc = SimpleNamespace(spot=SimpleNamespace(timezone=TZ, short="Test"), hourly=pd.DataFrame())
     html = species_popover(fc, "striped_bass", pd.DataFrame(), [(r, r.best)], {}, {}, "")
-    assert span_text(r.best.start, r.best.end, TZ) in html
-    assert f"{r.best.score:.0f}/100" in html
+    assert span_text(r.best.start, r.best.end, TZ, with_day=False) in html
+    assert f"{r.best.score:.0f}</span>" in html and 'class="sc-wt b1"' in html
     assert "Best 90-minute windows" in html
+
+
+# ---------------------------------------------------------- second window
+@pytest.mark.parametrize("species", ["striped_bass", "bluefish"])
+def test_low_light_species_get_a_second_window_hours_apart(species):
+    prof = load_profile(species)
+    assert prof.low_light and prof.second_max_drop is None
+    for d in (4, 5, 6):
+        r = compute_window(inputs(with_current=True), species, date(2026, 11, d), now=PAST)
+        assert r.best is not None and r.second is not None
+        a, b = sorted([r.best, r.second], key=lambda p: p.start)
+        assert b.start - a.end >= pd.Timedelta(hours=prof.second_gap_h)
+        assert r.best.score >= r.second.score and r.second.rank == 2
+        assert r.second_explanation and r.second_explanation["summary"]
+
+
+@pytest.mark.parametrize("species", ["fluke", "blackfish", "porgy"])
+def test_daylight_species_second_window_only_when_nearly_as_good(species):
+    prof = load_profile(species)
+    assert not prof.low_light and prof.second_max_drop == 10
+    for d in (4, 5, 6):
+        r = compute_window(inputs(with_current=True), species, date(2026, 11, d), now=PAST)
+        assert r.best is not None and r.second_note
+        if r.second is not None:
+            a, b = sorted([r.best, r.second], key=lambda p: p.start)
+            assert b.start - a.end >= pd.Timedelta(hours=prof.second_gap_h)
+            assert r.second.score >= r.best.score - 10
+        else:
+            assert "Only one window" in r.second_note
+
+
+def test_best_window_unchanged_by_second_window_rule():
+    """The gap rule only affects the runner-up; the best window is the global maximum either way."""
+    from app.models.window_optimizer import candidate_scores
+    r = compute_window(inputs(with_current=True), "striped_bass", DAY, now=PAST)
+    cs = candidate_scores(r.frame["total"], r.starts)
+    assert r.best.start == cs.idxmax() and r.best.score == round(cs.max(), 1)

@@ -142,6 +142,10 @@ The **⏱️ Best 90 min** tab answers *when exactly to go* for one species, spo
 - Synchronized solar and tide charts share one time axis; a translucent box spanning both marks the recommended window
   with its start/end times, score and a plain-English reason. A draggable comparison window and a second-best window
   can be inspected without moving the recommendation.
+- **Up to two windows a day, hours apart** (cyan = best, violet = second best). Low-light feeders (crepuscular /
+  nocturnal, e.g. striped bass, bluefish) always get a second session at least 4 h from the best, so you can plan around
+  the rest of your day. Daylight-only feeders get a second one only if it is at least 3 h away and within 10 points
+  of the best (e.g. two daylight slack tides for tautog). Set `second_window: {min_gap_h, max_drop}` per species.
 - A separate **forecast confidence** (0–100) reflects current-data availability, tide-station distance, overall data
   quality, location specificity, forecast lead time and how many of your logged sessions exist to judge the profile.
 
@@ -164,8 +168,8 @@ as proof the forecast was wrong, and species weights are never changed automatic
 
 ## Adding your own spots
 
-**Your spots** is editable in the dashboard: open **★ Manage my spots** in the sidebar to add any listed spot or remove one
-(✕), or press **✕ Remove from my spots** under a card. To save a place that isn't listed, find it with **Coordinates** or
+**Your spots** is editable in the dashboard: open **★ Manage my spots** in the sidebar to add any listed spot, reorder them
+(↑ ↓ — the main page follows this order) or remove one (✕), or press **✕ Remove from my spots** under a card. To save a place that isn't listed, find it with **Coordinates** or
 **Search a place** and press **☆ Save to my spots** on its card. Your list is kept in `data/my_spots.json` (not committed);
 delete that file to go back to the defaults.
 

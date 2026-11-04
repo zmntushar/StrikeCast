@@ -41,7 +41,7 @@ from dashboard.components.maps import build_map  # noqa: E402
 from dashboard.components.styles import CSS  # noqa: E402
 from app.models.tackle import recommend  # noqa: E402
 from dashboard.components.ui import (chip, esc, fmt, hint, hour_label, isnum, kind_badge,  # noqa: E402
-                                     legend_html, species_popover, surf_block, surf_headline, surf_source_text,
+                                     legend_html, species_popover, window_tag, surf_block, surf_headline, surf_source_text,
                                      tide_text, wave_txt, wind_text, window_text)
 
 st.markdown(CSS, unsafe_allow_html=True)
@@ -169,9 +169,18 @@ with st.sidebar:
             focus_id = custom.id
             st.caption(f"📌 {loc['label']}")
     with st.expander(f"★ Manage my spots ({len(FAVS)})", expanded=not FAVS):
-        for s in FAVS:
-            c_name, c_rm = st.columns([5, 1], vertical_alignment="center")
+        if len(FAVS) > 1:
+            st.caption("Use ↑ ↓ to set the order of your spots on the main page.")
+        for n_, s in enumerate(FAVS):
+            c_name, c_up, c_dn, c_rm = st.columns([6, 1, 1, 1], vertical_alignment="center", gap="small")
             c_name.markdown(f"{'📌' if s.custom else '★'} {esc(s.name)}")
+            if c_up.button("↑", key=f"side_up_{s.id}", type="tertiary", help=f"Move {s.name} up", disabled=n_ == 0):
+                my_spots.move(s.id, -1)
+                st.rerun()
+            if c_dn.button("↓", key=f"side_dn_{s.id}", type="tertiary", help=f"Move {s.name} down",
+                           disabled=n_ == len(FAVS) - 1):
+                my_spots.move(s.id, 1)
+                st.rerun()
             if c_rm.button("✕", key=f"side_rm_{s.id}", type="tertiary", help=f"Remove {s.name}"):
                 my_spots.remove(s.id)
                 st.rerun()
@@ -283,12 +292,14 @@ def horizon_days() -> list:
 
 
 def windows(fc, sp) -> list:
-    """Each day's best 90-minute window inside the selected horizon, best first: [(result, pick), ...]."""
+    """Each day's best (and, when it qualifies, second-best) 90-minute window in the selected horizon,
+    highest score first: [(result, pick), ...]; pick.rank is 1 (best) or 2 (second, hours apart)."""
     out = []
     for day in horizon_days():
         r = best_90(fc, sp, day)
-        if r.best is not None and start_ts <= r.best.start < end_ts:
-            out.append((r, r.best))
+        for p in (r.best, r.second):
+            if p is not None and start_ts <= p.start < end_ts:
+                out.append((r, p))
     return sorted(out, key=lambda x: -x[1].score)
 
 
@@ -374,8 +385,9 @@ def spot_card(fc) -> str:
     chips = "".join(chip_html)
     if best_by_sp:
         top_sp, (tr, tp) = max(best_by_sp.items(), key=lambda kv: kv[1][1].score)
-        win = (f'<div class="sc-window">⏱ Best 90 min for {esc(species_meta(top_sp)["short"])}: '
-               f'<b>{win_text(tr, tp, with_day=True)}</b> · {tp.score:.0f}/100</div>')
+        pair = [p for p in (tr.best, tr.second) if p is not None and start_ts <= p.start < end_ts]
+        win = (f'<div class="sc-window">⏱ {esc(species_meta(top_sp)["short"])} {tr.day:%a}: '
+               + "".join(window_tag(p, fc.spot.timezone) for p in sorted(pair, key=lambda p: p.start)) + '</div>')
     else:
         win = '<div class="sc-window">No 90-minute window in this range and time of day.</div>'
     g = fc.quality["grade"]
@@ -414,9 +426,11 @@ with tabs[0]:
         reg = season_status(sp, hres.day)
         reg_html = ('<span class="sc-badge" style="background:#14532d;color:#bbf7d0">Season open</span>' if reg.get("open")
                     else '<span class="sc-badge" style="background:#7f1d1d;color:#fecaca">Season closed — C&R only</span>')
+        hero_2nd = (f' Second session: {window_tag(hres.second, fc.spot.timezone)}'
+                    if hres.second is not None and hres.second.start >= start_ts else "")
         hero_win = (f'<div class="sc-window">⏱ Best 90 minutes, scored 0–100 for {esc(species_meta(sp)["short"].lower())} · '
                     f'forecast confidence {hres.confidence["label"].lower()} — '
-                    f'{esc(hres.explanation["summary"])} Details in the ⏱️ Best 90 min tab.</div>')
+                    f'{esc(hres.explanation["summary"])}{hero_2nd} Details in the ⏱️ Best 90 min tab.</div>')
         c1, c2 = st.columns([1.35, 1])
         with c1:
             st.markdown(f"""<div class="sc-card sc-hero">
@@ -480,13 +494,14 @@ with tabs[0]:
     rows = []
     for fc in VIS.values():
         for sp in species:
-            for r_, w in windows(fc, sp)[:2]:
+            for r_, w in windows(fc, sp)[:3]:
                 seg_ = r_.frame.loc[w.start:w.end]
                 rows.append({"Species": species_meta(sp)["short"], "Spot": ("★ " if fc.spot.favorite else "") + fc.spot.name,
-                             "Window": win_text(r_, w, with_day=True), "Score": w.score,
+                             "Window": win_text(r_, w, with_day=True), "Rank": "🟦 Best" if w.rank == 1 else "🟪 2nd",
+                             "Score": w.score,
                              "Confidence": r_.confidence["label"],
                              "Tide": seg_["tide_stage"].iloc[len(seg_) // 2] or "—" if len(seg_) else "—",
-                             "Light": r_.explanation.get("light", "—")})
+                             "Light": (r_.explanation if w.rank == 1 else (r_.second_explanation or {})).get("light", "—")})
     if rows:
         tdf = pd.DataFrame(rows).sort_values("Score", ascending=False).head(25)
         st.dataframe(tdf, hide_index=True, use_container_width=True,
@@ -529,22 +544,30 @@ with tabs[1]:
     else:
         b_ = res.best
         lab, colr = score_label(b_.score)
-        sec = (f'<div class="sc-sub" style="margin-top:.5rem">Second-best: <b>{win_text(res, res.second)}</b> · '
-               f'{res.second.score:.0f}/100</div>') if res.second else ""
         bullets = "".join(f"<li>{esc(t)}</li>" for t in res.explanation["bullets"])
+
+        def _win_block(p, label: str, accent: str) -> str:
+            lab_, colr_ = score_label(p.score)
+            return (f'<div style="border-left:4px solid {accent};padding:.15rem 0 .15rem .7rem">'
+                    f'<div class="sc-sub" style="color:{accent};font-weight:700">{label}</div>'
+                    f'<div style="font-size:1.45rem;font-weight:700;color:#f8fafc">{win_text(res, p)}</div>'
+                    f'<div style="font-size:.95rem;color:{colr_};font-weight:700">{p.score:.0f}'
+                    f'<span style="color:#94a3b8;font-weight:400">/100 suitability</span></div></div>')
+
+        sec_block = _win_block(res.second, "2ND-BEST WINDOW", "#c084fc") if res.second else ""
+        sec_why = (f'<div class="sc-explain" style="margin-top:.45rem"><b style="color:#d8b4fe">2nd best:</b> '
+                   f'{esc(res.second_explanation["summary"])}</div>') if res.second and res.second_explanation else ""
         st.markdown(f"""<div class="sc-card sc-hero">
           <div class="sc-sub" style="text-transform:uppercase;letter-spacing:.08em">{esc(meta_w['name'])} · {esc(wfc.spot.name)} ·
             {wday:%a %b %d} · <span title="behavioral categories">{esc(res.profile.category_label)}</span></div>
-          <div style="display:flex;align-items:center;gap:1.4rem;flex-wrap:wrap;margin:.45rem 0 .5rem">
-            <div><div class="sc-sub">Optimal window</div>
-              <div style="font-size:1.55rem;font-weight:700;color:#f8fafc">{win_text(res, b_)}</div></div>
-            <div><div class="sc-sub">Suitability</div>
-              <div style="font-size:1.55rem;font-weight:700;color:{colr}">{b_.score:.0f}<span style="font-size:.9rem;color:#94a3b8">/100</span></div></div>
+          <div style="display:flex;align-items:flex-end;gap:1.6rem;flex-wrap:wrap;margin:.5rem 0 .55rem">
+            {_win_block(b_, "BEST WINDOW", "#22d3ee")}{sec_block}
             <div><div class="sc-sub">Forecast confidence</div>
               <span class="sc-badge" style="background:{ccol}22;color:{ccol};border:1px solid {ccol}66;font-size:.9rem">{conf['label']} · {conf['score']}/100</span></div>
           </div>
-          <div class="sc-explain"><b>Why:</b> {esc(res.explanation['summary'])}</div>
-          <ul class="sc-explain" style="font-size:.85rem;margin:.35rem 0 0 0;padding-left:1.1rem">{bullets}</ul>{sec}
+          <div class="sc-explain"><b style="color:#67e8f9">Best:</b> {esc(res.explanation['summary'])}</div>
+          <ul class="sc-explain" style="font-size:.85rem;margin:.35rem 0 0 0;padding-left:1.1rem">{bullets}</ul>{sec_why}
+          <div class="sc-sub" style="margin-top:.45rem">{esc(res.second_note)}</div>
         </div>""", unsafe_allow_html=True)
         if res.elapsed:
             st.info("Every 90-minute window that starts today has already begun — showing the best of the day for reference.")
@@ -719,9 +742,9 @@ with tabs[3]:
         for col, (lab, v, note) in zip(k, kpis):
             col.markdown(f'<div class="sc-card sc-kpi"><div class="lab">{esc(lab)}</div><div class="val">{fmt(v, "{:.1f}" if lab == "Water temp" else "{:.0f}")}{"°F" if lab == "Water temp" else ""}</div>'
                          f'<div class="note">{esc(note)}</div></div>', unsafe_allow_html=True)
-        st.caption("Indices are environmental suitability scores (0–100). Shaded columns = night; cyan bands = each day's "
-                   f"best 90-minute window for {species_meta(species[0])['short']}.")
-        st.plotly_chart(charts.forecast_timeline(fc, species, d, bands=[(p_.start, p_.end) for _, p_ in windows(fc, species[0])]),
+        st.caption("Indices are environmental suitability scores (0–100). Shaded columns = night; bands = each day's "
+                   f"best (cyan) and second-best (violet) 90-minute windows for {species_meta(species[0])['short']}.")
+        st.plotly_chart(charts.forecast_timeline(fc, species, d, bands=[(p_.start, p_.end, p_.rank) for _, p_ in windows(fc, species[0])]),
                         use_container_width=True, config={"displayModeBar": False})
         st.markdown("##### Species × hour")
         st.plotly_chart(charts.species_heatmap(fc, species, d), use_container_width=True, config={"displayModeBar": False})

@@ -69,14 +69,15 @@ def candidate_scores(score: pd.Series, starts: pd.DatetimeIndex, length: pd.Time
     return pd.Series(vals, index=starts)
 
 
-def rank_windows(score: pd.Series, starts: pd.DatetimeIndex, length: pd.Timedelta = WINDOW, k: int = 2) -> list[WindowPick]:
-    """Best ``k`` mutually non-overlapping windows whose start is in ``starts``."""
+def rank_windows(score: pd.Series, starts: pd.DatetimeIndex, length: pd.Timedelta = WINDOW, k: int = 2,
+                 gap: pd.Timedelta = pd.Timedelta(0)) -> list[WindowPick]:
+    """Best ``k`` windows whose start is in ``starts``, at least ``gap`` apart (end of one to start of the next)."""
     vals = candidate_scores(score, starts, length).to_numpy()
     order = [i for i in np.argsort(-np.nan_to_num(vals, nan=-1), kind="stable") if not np.isnan(vals[i])]
     picks: list[WindowPick] = []
     for i in order:
         s = starts[i]
-        if all(abs(s - p.start) >= length for p in picks):
+        if all(abs(s - p.start) >= length + gap for p in picks):
             picks.append(WindowPick(start=s, end=s + length, score=round(float(vals[i]), 1), rank=len(picks) + 1))
             if len(picks) == k:
                 break

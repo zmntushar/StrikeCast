@@ -45,6 +45,14 @@ class FeedingProfile:
     preferred_tide: dict[str, list[str]]   # by spot environment
     condition_weights: dict[str, float]    # weights over the hourly environmental factors
     notes: tuple[str, ...] = field(default_factory=tuple)
+    # Second window: must start/end at least this many hours away from the best one ...
+    second_gap_h: float = 4.0
+    # ... and (if set) score within this many points of it, otherwise only one window is shown.
+    second_max_drop: float | None = None
+
+    @property
+    def low_light(self) -> bool:
+        return bool({"crepuscular", "nocturnal"} & set(self.categories))
 
     @property
     def category_label(self) -> str:
@@ -86,7 +94,17 @@ def load_profile(species: str) -> FeedingProfile:
         preferred_tide=meta.get("preferred_tide", {}),
         condition_weights=cond,
         notes=tuple(win.get("notes", [])),
+        **_second_rule(cats, win.get("second_window") or {}),
     )
+
+
+def _second_rule(cats: tuple[str, ...], cfg: dict) -> dict:
+    """Low-light feeders (dawn AND dusk / night) always get a second window several hours away.
+    Daylight-only feeders get one only when it is nearly as good (e.g. two daylight slack tides)."""
+    low = bool({"crepuscular", "nocturnal"} & set(cats))
+    gap = float(cfg.get("min_gap_h", 4.0 if low else 3.0))
+    drop = cfg.get("max_drop", None if low else 10.0)
+    return {"second_gap_h": gap, "second_max_drop": None if drop is None else float(drop)}
 
 
 def solar_suitability(profile: FeedingProfile, elev: np.ndarray, cloud_pct: np.ndarray | None = None) -> np.ndarray:

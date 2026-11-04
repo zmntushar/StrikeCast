@@ -76,6 +76,8 @@ class WindowResult:
     confidence: dict[str, Any]
     explanation: dict[str, Any]
     computed_at: datetime
+    second_explanation: dict[str, Any] | None = None
+    second_note: str = ""                # why there is (or is not) a second window
 
     @property
     def tz(self) -> str:
@@ -145,18 +147,34 @@ def compute_window(inputs: WindowInputs, species: str, day: date, now: datetime 
             considered = upcoming
         else:
             elapsed = True
-    picks = rank_windows(score, considered)
+    gap = pd.Timedelta(hours=profile.second_gap_h)
+    picks = rank_windows(score, considered, gap=gap)
     best = picks[0] if picks else None
     second = picks[1] if len(picks) > 1 else None
+    second_note = ""
+    if best is not None:
+        gap_txt = f"{profile.second_gap_h:g} h"
+        if second is not None and profile.second_max_drop is not None and second.score < best.score - profile.second_max_drop:
+            second_note = (f"Only one window: nothing else at least {gap_txt} away scores within "
+                           f"{profile.second_max_drop:g} points of the best (best other: {second.score:.0f}).")
+            second = None
+        elif second is None:
+            second_note = f"Only one window: no other 90-minute window at least {gap_txt} away is available."
+        elif profile.low_light:
+            second_note = f"Low-light feeder: a second session at least {gap_txt} away from the best one."
+        else:
+            second_note = f"A second session at least {gap_txt} away scores almost as well."
 
     sun = solar_events(inputs.lat, inputs.lon, day, inputs.tz)
     slack = cm.slack_times(inputs.current_events, grid[0], grid[-1])
     conf = confidence(inputs, source, frame, day, now_ts, calibration_sessions)
     expl = explain(frame, profile, best, source, inputs) if best else {
         "summary": "Not enough data to score any 90-minute window for this date.", "factors": [], "bullets": []}
+    expl2 = explain(frame, profile, second, source, inputs) if second else None
     return WindowResult(species=species, profile=profile, inputs=inputs, day=day, frame=frame, starts=considered,
                         current_source=source, best=best, second=second, elapsed=elapsed, sun=sun, slack=slack,
-                        confidence=conf, explanation=expl, computed_at=datetime.now(timezone.utc))
+                        confidence=conf, explanation=expl, computed_at=datetime.now(timezone.utc),
+                        second_explanation=expl2, second_note=second_note)
 
 
 def window_for_forecast(fc, species: str, day: date, now: datetime | None = None,

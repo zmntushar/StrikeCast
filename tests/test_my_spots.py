@@ -50,3 +50,16 @@ def test_save_searched_place_then_remove():
     assert "44025" in stations["ndbc"] and "8516385" in stations["coops"]
     my_spots.remove(spot.id)
     assert spot.id not in {x.id for x in load_spots()}
+
+
+def test_reorder_saved_spots():
+    my_spots.move("robert_moses_democrat_point", -1)
+    assert my_spots.saved_ids()[-2:] == ["robert_moses_democrat_point", "jones_beach_west_end_2"]
+    my_spots.move("robert_moses_democrat_point", -10)          # clamps at the top
+    assert my_spots.saved_ids()[0] == "robert_moses_democrat_point"
+    my_spots.move("robert_moses_democrat_point", 1)
+    assert my_spots.saved_ids()[:2] == ["jones_beach_field_10", "robert_moses_democrat_point"]
+    my_spots.move("not_saved", 1)                              # unknown id: no change
+    assert len(my_spots.saved_ids()) == len(DEFAULTS)
+    fav_order = [s.id for s in load_spots() if s.favorite]     # config order is unchanged
+    assert set(fav_order) == set(DEFAULTS)

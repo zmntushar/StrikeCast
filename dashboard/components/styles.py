@@ -76,6 +76,13 @@ div[data-testid="stProgress"] > div > div > div > div { background: linear-gradi
 .sc-pop .pb.no { background:#7f1d1d; color:#fecaca; }
 .sc-pop .ph { color:#67e8f9; font-size:.68rem; text-transform:uppercase; letter-spacing:.07em; font-weight:700; margin:.55rem 0 .2rem; }
 .sc-pop .pw { padding:.12rem 0; }
+/* 90-minute window tags: cyan = best, violet = second best */
+.sc-wt { display:inline-block; padding:.08rem .45rem; border-radius:7px; font-size:.78rem; font-weight:600;
+  margin:.1rem .25rem .1rem 0; white-space:nowrap; }
+.sc-wt.b1 { background:rgba(34,211,238,.16); border:1px solid rgba(34,211,238,.6); color:#a5f3fc; }
+.sc-wt.b2 { background:rgba(192,132,252,.16); border:1px solid rgba(192,132,252,.6); color:#e9d5ff; }
+.sc-wt i { font-style:normal; opacity:.75; margin-right:.25rem; }
+.sc-pop .pw .d { display:inline-block; width:2.2rem; color:#94a3b8; font-weight:600; }
 .sc-pop .pg { display:flex; gap:.4rem; }
 .sc-pop .pg span { color:#94a3b8; min-width:78px; }
 .sc-pop ul { margin:.1rem 0 .2rem; padding-left:1rem; }
@@ -161,6 +168,17 @@ button[data-variant="segmented_control"][aria-checked="true"] {
   background: #164e63 !important; border: 1px solid rgba(103,232,249,.45) !important; color: #e0f2fe !important; }
 [data-testid="stMultiSelectTagsContainer"] [data-tag] * { color: #e0f2fe !important; }
 [data-testid="stMultiSelectTagsContainer"] [data-tag] button:hover { color: #fecaca !important; }
+
+/* sidebar rows (saved spot + ↑ ↓ ✕) stay on one line even on phones, where Streamlit stacks columns */
+section[data-testid="stSidebar"] [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; gap: .2rem !important; }
+section[data-testid="stSidebar"] [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
+  min-width: 0 !important; width: auto !important; flex: 1 1 0 !important; }
+section[data-testid="stSidebar"] [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:first-child { flex: 6 1 0 !important; }
+section[data-testid="stSidebar"] [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:only-child,
+section[data-testid="stSidebar"] [data-testid="stHorizontalBlock"]:has(> [data-testid="stColumn"]:nth-child(2):last-child) > [data-testid="stColumn"] {
+  flex: 1 1 0 !important; }
+section[data-testid="stSidebar"] button[data-testid="stBaseButton-tertiary"] { padding: .1rem .25rem !important; min-height: 1.6rem; }
+section[data-testid="stSidebar"] button[data-testid="stBaseButton-tertiary"]:disabled { opacity: .25; }
 
 /* sidebar section headings & labels a touch brighter */
 section[data-testid="stSidebar"] [data-testid="stWidgetLabel"] p { color: #cbd5e1 !important; font-weight: 500; }

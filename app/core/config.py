@@ -29,7 +29,10 @@ class Settings(BaseSettings):
 
     http_timeout_s: float = 25.0
     http_max_retries: int = 3
-    http_max_concurrency: int = 8
+    http_max_concurrency: int = 12
+    # Spots are scored in parallel worker processes (CPU-bound numpy/pandas work). 0 = in-process.
+    # -1 = automatic: up to 6 workers, leaving a core free.
+    assemble_workers: int = -1
     cache_enabled: bool = True
 
     # Cache lifetimes (seconds) per provider product — tuned to update intervals.

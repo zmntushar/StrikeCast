@@ -209,49 +209,58 @@ def breaking_from_partitions(parts: list[dict], facing_deg: float, geom: Geometr
     hb_guess = np.full(n, 1.0)
     T_eff_num = np.zeros(n)
     h1 = h_boundary if h_boundary and h_boundary > 0 else np.inf
+    h_obs = geom.obstacle_depth(facing_deg) if geom is not None else None
+
+    # Everything that does not depend on the breaker depth is computed once, for all
+    # directional bins at once (arrays shaped [bin, time]); only Snell's law to the
+    # breaker depth is repeated in the αb iteration below.
+    pre = []
+    for p in parts:
+        H = np.asarray(p["H"], dtype=float)
+        T = np.asarray(p["T"], dtype=float)
+        D = np.asarray(p["dir"], dtype=float)
+        ok = np.isfinite(H) & np.isfinite(T) & np.isfinite(D) & (T > 0) & (H >= 0)
+        any_valid |= ok
+        Hs, Ts, Ds = np.where(ok, H, 0.0), np.where(ok, T, 8.0), np.where(ok, D, 0.0)
+        C1, Cg1 = celerity(Ts, h1)
+        C0, Cg0 = deep_water(Ts)
+        offs, w = spread_offsets(p.get("sigma", SIGMA_WIND_SEA))
+        bdir = Ds[None, :] + offs[:, None]
+        signed = ((bdir - facing_deg + 180) % 360) - 180
+        a1 = np.radians(np.abs(signed))
+        incoming = a1 < np.pi / 2
+        if geom is not None:
+            # Waves refract toward the shore normal before they reach the
+            # sheltering land (Snell at the obstacle depth); test the shadow there.
+            C_obs, _ = celerity(Ts, h_obs)
+            k_obs = wavenumber(Ts, h_obs)
+            a_obs = np.degrees(np.arcsin(np.clip(np.sin(a1) * C_obs / C1, -1, 1)))
+            dir_obs = facing_deg + np.sign(signed) * a_obs
+            adm = geom.diffraction_weight(dir_obs, np.broadcast_to(k_obs, dir_obs.shape))
+        else:
+            adm = np.ones_like(a1)
+        e = w[:, None] * adm * Hs ** 2                                  # energy share at the boundary
+        pre.append({
+            "Ts": Ts, "C0": C0, "use": incoming & ok,
+            "sin0": np.clip(np.sin(a1) * C0 / C1, -1, 1),               # back-refract to deep water
+            "H0sq_cos0": e * (Cg1 / Cg0) * np.cos(a1),                  # flux conservation: H0² cosα0
+            "oblique": np.degrees(a1) > 60, "shadow": adm < 1.0})
+
     for _ in range(3):                      # iterate the breaker depth used for αb
         flux[:] = 0; flux_oblique[:] = 0; flux_shadow[:] = 0; T_eff_num[:] = 0
-        for p in parts:
-            H = np.asarray(p["H"], dtype=float)
-            T = np.asarray(p["T"], dtype=float)
-            D = np.asarray(p["dir"], dtype=float)
-            ok = np.isfinite(H) & np.isfinite(T) & np.isfinite(D) & (T > 0) & (H >= 0)
-            any_valid |= ok
-            Hs, Ts, Ds = np.where(ok, H, 0.0), np.where(ok, T, 8.0), np.where(ok, D, 0.0)
-            C1, Cg1 = celerity(Ts, h1)
-            C0, Cg0 = deep_water(Ts)
-            if geom is not None:
-                h_obs = geom.obstacle_depth(facing_deg)
-                C_obs, _ = celerity(Ts, h_obs)
-                k_obs = wavenumber(Ts, h_obs)
-            offs, w = spread_offsets(p.get("sigma", SIGMA_WIND_SEA))
-            for off, wi in zip(offs, w):
-                bdir = Ds + off
-                signed = ((bdir - facing_deg + 180) % 360) - 180
-                a1 = np.radians(np.abs(signed))
-                incoming = a1 < np.pi / 2
-                if geom is not None:
-                    # Waves refract toward the shore normal before they reach the
-                    # sheltering land (Snell at the obstacle depth); test the shadow there.
-                    a_obs = np.degrees(np.arcsin(np.clip(np.sin(a1) * C_obs / C1, -1, 1)))
-                    dir_obs = facing_deg + np.sign(signed) * a_obs
-                    adm = geom.diffraction_weight(dir_obs, k_obs)
-                else:
-                    adm = np.ones(n)
-                e = wi * adm * Hs ** 2                                  # energy share at the boundary
-                sin0 = np.clip(np.sin(a1) * C0 / C1, -1, 1)             # back-refract to deep water
-                H0sq_cos0 = e * (Cg1 / Cg0) * np.cos(a1)                # flux conservation: H0² cosα0
-                # Snell's law to the breaker depth, with the full dispersion relation
-                # (short wind waves are not in shallow water there, so C_b < C0 always)
-                Cb, _ = celerity(Ts, hb_guess / 0.78)
-                sinb = np.clip(sin0 * Cb / C0, -1, 1)
-                cosb = np.sqrt(1 - sinb ** 2)
-                fb = np.where(incoming & ok, H0sq_cos0 * Ts / np.maximum(cosb, 0.05), 0.0)
-                hb_bin25 = (KOMAR_K * G ** 0.2) ** 2.5 * fb               # Hb_bin^(5/2)
-                flux += hb_bin25
-                T_eff_num += hb_bin25 * Ts
-                flux_oblique += np.where(np.degrees(a1) > 60, hb_bin25, 0.0)
-                flux_shadow += np.where(adm < 1.0, hb_bin25, 0.0)
+        for q in pre:
+            Ts = q["Ts"]
+            # Snell's law to the breaker depth, with the full dispersion relation
+            # (short wind waves are not in shallow water there, so C_b < C0 always)
+            Cb, _ = celerity(Ts, hb_guess / 0.78)
+            sinb = np.clip(q["sin0"] * Cb / q["C0"], -1, 1)
+            cosb = np.sqrt(1 - sinb ** 2)
+            fb = np.where(q["use"], q["H0sq_cos0"] * Ts / np.maximum(cosb, 0.05), 0.0)
+            hb_bin25 = (KOMAR_K * G ** 0.2) ** 2.5 * fb               # Hb_bin^(5/2), per bin
+            flux += hb_bin25.sum(axis=0)
+            T_eff_num += (hb_bin25 * Ts).sum(axis=0)
+            flux_oblique += np.where(q["oblique"], hb_bin25, 0.0).sum(axis=0)
+            flux_shadow += np.where(q["shadow"], hb_bin25, 0.0).sum(axis=0)
         hb_new = flux ** 0.4
         hb_guess = np.where(hb_new > 0.05, hb_new, 0.05)
     hb = np.where(any_valid, flux ** 0.4, np.nan)

@@ -44,7 +44,7 @@ def _nights(fig: go.Figure, daily: list[dict], tz: str, x0, x1) -> None:
 
 
 def forecast_timeline(fc, species: list[str], d: pd.DataFrame, bands: list | None = None) -> go.Figure:
-    """``bands`` = [(start, end), ...] highlighted on the Bite Index panel (the best 90-min windows)."""
+    """``bands`` = [(start, end[, rank]), ...] highlighted on the Bite Index panel (best = cyan, 2nd = violet)."""
     tz = fc.spot.timezone
     x = d.index.tz_convert(tz).tz_localize(None)
     fig = make_subplots(rows=4, cols=1, shared_xaxes=True, vertical_spacing=0.045,
@@ -57,11 +57,13 @@ def forecast_timeline(fc, species: list[str], d: pd.DataFrame, bands: list | Non
         fig.add_trace(go.Scatter(x=x, y=d[f"bite_{sp}"], name=meta["short"], line=dict(color=meta["color"], width=2.4),
                                  hovertemplate="%{y:.0f}"), row=1, col=1)
     spans = bands if bands is not None else [(w.start, w.end) for w in (fc.windows.get(species[0]) or [])[:6]]
-    for w0, w1 in spans:
+    for span in spans:
+        w0, w1 = span[0], span[1]
+        rgb = "192,132,252" if len(span) > 2 and span[2] == 2 else "34,211,238"
         a = pd.Timestamp(w0).tz_convert(tz).tz_localize(None)
         b = pd.Timestamp(w1).tz_convert(tz).tz_localize(None)
         if b >= x.min() and a <= x.max():
-            fig.add_vrect(x0=a, x1=b, fillcolor="rgba(34,211,238,0.12)", line=dict(color="rgba(34,211,238,.5)", width=1),
+            fig.add_vrect(x0=a, x1=b, fillcolor=f"rgba({rgb},0.12)", line=dict(color=f"rgba({rgb},.5)", width=1),
                           row=1, col=1)
     fig.add_hline(y=80, line=dict(color="rgba(239,68,68,.35)", dash="dot"), row=1, col=1)
     fig.add_hline(y=65, line=dict(color="rgba(249,115,22,.30)", dash="dot"), row=1, col=1)

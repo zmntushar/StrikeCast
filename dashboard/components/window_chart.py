@@ -20,7 +20,7 @@ FONT = dict(family="Inter, system-ui, sans-serif", color="#cbd5e1", size=12)
 GRID = "rgba(148,163,184,0.12)"
 REGION = {"night": "rgba(15,23,42,0.0)", "twilight": "rgba(167,139,250,0.22)", "daylight": "rgba(250,204,21,0.12)"}
 FLOOD, EBB = "rgba(52,211,153,0.13)", "rgba(244,114,182,0.13)"
-BEST, SECOND, COMPARE = "#22d3ee", "#a5b4fc", "#fb923c"
+BEST, SECOND, COMPARE = "#22d3ee", "#c084fc", "#fb923c"   # cyan = best, violet = 2nd
 
 
 def time_label(ts: pd.Timestamp, tz: str) -> str:
@@ -158,11 +158,11 @@ def window_figure(result, compare: WindowPick | None = None, show_second: bool =
 
     # ---------------- windows spanning both panels
     if result.best is not None:
-        _legend_box(fig, "Recommended 90-min window", BEST, "square")
+        _legend_box(fig, "Best 90-min window", BEST, "square")
     if result.second is not None and show_second:
-        _window_shape(fig, result.second, tz, SECOND, "rgba(165,180,252,0.07)", "second_window", "dot", "2nd",
-                      top=False)
-        _legend_box(fig, "Second-best window (backup, no overlap)", SECOND, "square-open")
+        # The second window is always hours away from the best, so its labels can sit on top too.
+        _window_shape(fig, result.second, tz, SECOND, "rgba(192,132,252,0.13)", "second_window", "dash", "2nd best")
+        _legend_box(fig, f"Second-best window (≥ {result.profile.second_gap_h:g} h away)", SECOND, "square")
     if compare is not None:
         _window_shape(fig, compare, tz, COMPARE, "rgba(251,146,60,0.10)", "compare_window", "dash", "Compare", top=False)
         _legend_box(fig, "Your comparison window", COMPARE, "square-open")

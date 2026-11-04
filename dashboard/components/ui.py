@@ -60,6 +60,13 @@ def span_text(start, end, tz: str, with_day: bool = True) -> str:
     return (f"{s:%a} " if with_day else "") + body
 
 
+def window_tag(p, tz: str, with_day: bool = False) -> str:
+    """Color-coded window chip: cyan = best, violet = second best."""
+    cls, lab = ("b1", "Best") if p.rank != 2 else ("b2", "2nd")
+    return (f'<span class="sc-wt {cls}"><i>{lab}</i>{span_text(p.start, p.end, tz, with_day)} · '
+            f'{p.score:.0f}</span>')
+
+
 def species_popover(fc, sp: str, d: pd.DataFrame, wins: list, reg: dict, rec: dict, why: str,
                     prow: pd.Series | None = None) -> str:
     """Detail card for one species at one spot.
@@ -76,10 +83,14 @@ def species_popover(fc, sp: str, d: pd.DataFrame, wins: list, reg: dict, rec: di
     lab, colr = score_label(wins[0][1].score if wins else (s.max() if not s.empty else None))
 
     if wins:
-        win_html = "".join(
-            f'<div class="pw"><b>{span_text(p.start, p.end, tz)}</b> '
-            f'<span style="color:{score_label(p.score)[1]}">{p.score:.0f}/100</span></div>'
-            for _, p in wins[:3])
+        by_day: dict = {}
+        for r, p in wins:
+            by_day.setdefault(r.day, []).append(p)
+        rows = []
+        for day in sorted(by_day)[:3]:
+            tags = "".join(window_tag(p, tz) for p in sorted(by_day[day], key=lambda p: p.rank))
+            rows.append(f'<div class="pw"><span class="d">{day:%a}</span>{tags}</div>')
+        win_html = "".join(rows)
     elif peak_ts is not None:
         win_html = (f'<div class="pw">No 90-minute window in this range and time of day · best hour '
                     f'<b>{hour_label(pd.Timestamp(peak_ts).tz_convert(tz))}</b> ({s.max():.0f})</div>')
@@ -120,7 +131,7 @@ def species_popover(fc, sp: str, d: pd.DataFrame, wins: list, reg: dict, rec: di
             if reg.get("size") else "")
     return (f'<span class="pt" style="border-color:{meta["color"]}">{esc(meta["name"])} · {esc(fc.spot.short)} '
             f'<span style="color:{colr}">{lab}</span></span>{reg_badge}'
-            f'<div class="ph">⏱ Best 90-minute windows</div>{win_html}'
+            f'<div class="ph">⏱ Best 90-minute windows <span style="text-transform:none;font-weight:400">(cyan = best, violet = 2nd)</span></div>{win_html}'
             + (f'<div class="ph">{"During the best window" if wins else "At the peak hour"}</div>{cond}' if cond else "")
             + (f'<div class="ph">Why</div><div class="pn" style="color:#cbd5e1">{esc(why)}</div>' if why else "")
             + tackle + regs)

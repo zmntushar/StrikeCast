@@ -8,6 +8,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import sys
+import threading
+import types
+from contextlib import contextmanager
+from concurrent.futures import Future, ProcessPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from typing import Any, Awaitable, Callable
@@ -714,20 +720,108 @@ def data_quality(sources: list[SourceInfo], missing: list[str], mode: str) -> di
 
 
 # ------------------------------------------------------------------ public
-async def collect(spots: list[Spot], frame: TimeFrame, progress: ProgressCb | None = None,
-                  species: list[str] | None = None) -> dict[str, SpotForecast]:
-    prog = Progress(progress, 1)
-    async with HttpClient() as http:
-        raw = await _fetch_all(http, spots, frame, prog, extra_steps=len(spots))
+# ------------------------------------------------------- parallel scoring
+# Downloading is async (httpx + asyncio, all providers at once). Turning the raw data
+# into hourly features and scores is CPU-bound pandas/numpy work, which threads cannot
+# speed up (GIL), so spots are scored in a persistent pool of worker processes. The
+# workers are started while the downloads are still running, which hides their startup.
+_POOL: ProcessPoolExecutor | None = None
+_POOL_N = 0
+_POOL_LOCK = threading.Lock()
+
+
+def _n_workers() -> int:
+    n = get_settings().assemble_workers
+    return max(0, min(6, (os.cpu_count() or 2) - 1)) if n < 0 else n
+
+
+@contextmanager
+def _neutral_main():
+    """Windows starts workers with 'spawn', which re-imports the parent's __main__ module in every
+    worker. Under Streamlit that is the dashboard script itself, so hide it while workers start;
+    they only need the ``app`` package."""
+    main = sys.modules.get("__main__")
+    sys.modules["__main__"] = types.ModuleType("__main__")
+    try:
+        yield
+    finally:
+        if main is not None:
+            sys.modules["__main__"] = main
+
+
+def _pool() -> ProcessPoolExecutor | None:
+    """Persistent worker pool, started (in the background) on first use and reused afterwards."""
+    global _POOL, _POOL_N
+    with _POOL_LOCK:
+        n = _n_workers()
+        if _POOL is None and n >= 2:
+            _POOL, _POOL_N = ProcessPoolExecutor(max_workers=n), n
+            with _neutral_main():              # the first submit launches every worker process
+                for _ in range(n):
+                    _POOL.submit(_warm)
+        return _POOL
+
+
+def _drop_pool() -> None:
+    global _POOL
+    with _POOL_LOCK:
+        if _POOL is not None:
+            _POOL.shutdown(wait=False, cancel_futures=True)
+        _POOL = None
+
+
+def _warm() -> int:
+    """No-op run in each worker so the processes (and their imports) start early."""
+    return os.getpid()
+
+
+def _assemble_job(spot: Spot, frame: TimeFrame, raw: dict[str, Any], pos: int, species: list[str] | None,
+                  stations: dict[str, Any]) -> SpotForecast:
+    # Saved searched places register their stations at runtime; give the worker the same view.
+    sc = stations_config()
+    for kind, items in stations.items():
+        if isinstance(items, dict):
+            for sid, meta in items.items():
+                sc.setdefault(kind, {}).setdefault(sid, meta)
+    return assemble(spot, frame, raw, pos, species)
+
+
+def _assemble_all(spots: list[Spot], frame: TimeFrame, raw: dict[str, Any], species: list[str] | None,
+                  prog: Progress, pool: ProcessPoolExecutor | None) -> dict[str, SpotForecast]:
     out: dict[str, SpotForecast] = {}
+    if pool is not None:
+        try:
+            stations = stations_config()
+            futs: dict[Future, Spot] = {pool.submit(_assemble_job, sp, frame, raw, i, species, stations): sp
+                                        for i, sp in enumerate(spots)}
+            for fut in as_completed(futs):
+                sp = futs[fut]
+                out[sp.id] = fut.result()
+                prog.step(f"Scoring {sp.short}")
+            return {sp.id: out[sp.id] for sp in spots}
+        except Exception as exc:  # noqa: BLE001 — fall back to in-process scoring
+            log_kv(log, logging.WARNING, "parallel scoring failed; scoring in-process", error=str(exc)[:200])
+            _drop_pool()
     for i, sp in enumerate(spots):
+        if sp.id in out:
+            continue
         try:
             out[sp.id] = assemble(sp, frame, raw, i, species)
         except Exception as exc:  # noqa: BLE001
             log.exception("assemble failed for %s", sp.id)
             raise RuntimeError(f"Could not build forecast for {sp.name}: {exc}") from exc
         prog.step(f"Scoring {sp.short}")
-    return out
+    return {sp.id: out[sp.id] for sp in spots}
+
+
+async def collect(spots: list[Spot], frame: TimeFrame, progress: ProgressCb | None = None,
+                  species: list[str] | None = None) -> dict[str, SpotForecast]:
+    prog = Progress(progress, 1)
+    pool = _pool() if len(spots) >= 3 else None   # workers start up while we download
+    async with HttpClient() as http:
+        raw = await _fetch_all(http, spots, frame, prog, extra_steps=len(spots))
+    # Called directly (not in a helper thread) so progress callbacks stay on the caller's thread.
+    return _assemble_all(spots, frame, raw, species, prog, pool)
 
 
 def run_sync(coro):

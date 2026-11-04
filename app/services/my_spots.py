@@ -74,6 +74,18 @@ def remove(spot_id: str) -> None:
     set_ids([i for i in saved_ids() if i != spot_id])
 
 
+def move(spot_id: str, offset: int) -> None:
+    """Move a saved spot up (offset < 0) or down (offset > 0); the dashboard shows spots in this order."""
+    ids = saved_ids()
+    if spot_id not in ids:
+        return
+    i = ids.index(spot_id)
+    j = max(0, min(len(ids) - 1, i + offset))
+    if i != j:
+        ids.insert(j, ids.pop(i))
+        set_ids(ids)
+
+
 def save_custom(spot: Any, name: str | None = None) -> str:
     """Save a searched place (a custom Spot) to Your spots. Returns its id."""
     fields = spot.model_dump(exclude={"favorite"})
