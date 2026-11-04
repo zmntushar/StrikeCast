@@ -43,7 +43,8 @@ def _nights(fig: go.Figure, daily: list[dict], tz: str, x0, x1) -> None:
             fig.add_vrect(x0=x0, x1=first_rise, fillcolor=NIGHT, line_width=0, layer="below", row="all", col=1)
 
 
-def forecast_timeline(fc, species: list[str], d: pd.DataFrame) -> go.Figure:
+def forecast_timeline(fc, species: list[str], d: pd.DataFrame, bands: list | None = None) -> go.Figure:
+    """``bands`` = [(start, end), ...] highlighted on the Bite Index panel (the best 90-min windows)."""
     tz = fc.spot.timezone
     x = d.index.tz_convert(tz).tz_localize(None)
     fig = make_subplots(rows=4, cols=1, shared_xaxes=True, vertical_spacing=0.045,
@@ -55,9 +56,10 @@ def forecast_timeline(fc, species: list[str], d: pd.DataFrame) -> go.Figure:
         meta = species_meta(sp)
         fig.add_trace(go.Scatter(x=x, y=d[f"bite_{sp}"], name=meta["short"], line=dict(color=meta["color"], width=2.4),
                                  hovertemplate="%{y:.0f}"), row=1, col=1)
-    for w in (fc.windows.get(species[0]) or [])[:6]:
-        a = pd.Timestamp(w.start).tz_convert(tz).tz_localize(None)
-        b = pd.Timestamp(w.end).tz_convert(tz).tz_localize(None)
+    spans = bands if bands is not None else [(w.start, w.end) for w in (fc.windows.get(species[0]) or [])[:6]]
+    for w0, w1 in spans:
+        a = pd.Timestamp(w0).tz_convert(tz).tz_localize(None)
+        b = pd.Timestamp(w1).tz_convert(tz).tz_localize(None)
         if b >= x.min() and a <= x.max():
             fig.add_vrect(x0=a, x1=b, fillcolor="rgba(34,211,238,0.12)", line=dict(color="rgba(34,211,238,.5)", width=1),
                           row=1, col=1)

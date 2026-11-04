@@ -121,7 +121,8 @@ def day_grid(day: date, tz: str) -> tuple[pd.DatetimeIndex, pd.DatetimeIndex]:
 
 # --------------------------------------------------------------- compute
 def compute_window(inputs: WindowInputs, species: str, day: date, now: datetime | None = None,
-                   calibration_sessions: int = 0) -> WindowResult:
+                   calibration_sessions: int = 0, tod: tuple[int, int] | None = None) -> WindowResult:
+    """``tod`` = (first, last) local start hour allowed, e.g. (5, 20); None or (0, 24) = whole day."""
     profile = load_profile(species)
     grid, starts = day_grid(day, inputs.tz)
     frame, source = component_frame(
@@ -134,8 +135,12 @@ def compute_window(inputs: WindowInputs, species: str, day: date, now: datetime 
     now_ts = now_ts.tz_localize("UTC") if now_ts.tzinfo is None else now_ts.tz_convert("UTC")
     upcoming = starts[starts >= now_ts.ceil(STEP)]
     elapsed = False
+    if tod and tuple(tod) != (0, 24):
+        hrs = starts.tz_convert(inputs.tz).hour
+        starts = starts[(hrs >= tod[0]) & (hrs < tod[1])]
+        upcoming = upcoming[upcoming.isin(starts)]
     considered = starts
-    if now_ts > starts[0]:            # today (or a past date): prefer windows that haven't started
+    if len(starts) and now_ts > starts[0]:            # today (or a past date): prefer windows that haven't started
         if len(upcoming):
             considered = upcoming
         else:
@@ -155,8 +160,8 @@ def compute_window(inputs: WindowInputs, species: str, day: date, now: datetime 
 
 
 def window_for_forecast(fc, species: str, day: date, now: datetime | None = None,
-                        calibration_sessions: int = 0) -> WindowResult:
-    return compute_window(inputs_from_forecast(fc), species, day, now, calibration_sessions)
+                        calibration_sessions: int = 0, tod: tuple[int, int] | None = None) -> WindowResult:
+    return compute_window(inputs_from_forecast(fc), species, day, now, calibration_sessions, tod)
 
 
 def compare_window(result: WindowResult, start: pd.Timestamp) -> dict[str, Any]:

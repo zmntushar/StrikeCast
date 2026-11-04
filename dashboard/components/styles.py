@@ -129,5 +129,41 @@ div[data-testid="stProgress"] > div > div > div > div { background: linear-gradi
 .sc-target { display:flex; gap:.6rem; align-items:flex-start; padding:.45rem 0; border-bottom:1px solid var(--line); font-size:.84rem; }
 .sc-target .num { flex:0 0 26px; height:26px; border-radius:50%; display:grid; place-items:center; font-weight:700;
   background:#22d3ee; color:#082f49; }
+
+/* ---- controls: readable contrast (the theme's bright cyan is too light for white text) ---- */
+/* primary buttons: dark ink on cyan */
+button[data-testid="stBaseButton-primary"] {
+  background: linear-gradient(135deg, #22d3ee 0%, #38bdf8 100%) !important; border: 1px solid #67e8f9 !important;
+  color: #04121f !important; font-weight: 700 !important; box-shadow: 0 4px 14px rgba(34,211,238,.25); }
+button[data-testid="stBaseButton-primary"] * { color: #04121f !important; }
+button[data-testid="stBaseButton-primary"]:hover { filter: brightness(1.08); box-shadow: 0 6px 18px rgba(34,211,238,.4); }
+button[data-testid="stBaseButton-secondary"] { border-color: rgba(148,163,184,.35) !important; color: #e2e8f0 !important; }
+
+/* pills (species): selected = solid with a check mark, unselected = quiet outline */
+button[data-variant="pills"] {
+  background: rgba(15,23,42,.6) !important; border: 1px solid rgba(148,163,184,.35) !important; color: #94a3b8 !important;
+  font-weight: 600 !important; transition: all .12s ease; }
+button[data-variant="pills"] * { color: inherit !important; }
+button[data-variant="pills"]:hover { border-color: #67e8f9 !important; color: #e2e8f0 !important; }
+button[data-variant="pills"][data-selected="true"] {
+  background: #22d3ee !important; border-color: #67e8f9 !important; color: #04121f !important; }
+button[data-variant="pills"][data-selected="true"]::before { content: "✓"; margin-right: .3rem; font-weight: 800; }
+
+/* segmented control (horizon) */
+button[data-variant="segmented_control"] {
+  background: rgba(15,23,42,.6) !important; color: #cbd5e1 !important; font-weight: 600 !important; }
+button[data-variant="segmented_control"] * { color: inherit !important; }
+button[data-variant="segmented_control"][aria-checked="true"] {
+  background: #22d3ee !important; color: #04121f !important; border-color: #67e8f9 !important; }
+
+/* multiselect tags (fishing environments) */
+[data-testid="stMultiSelectTagsContainer"] [data-tag] {
+  background: #164e63 !important; border: 1px solid rgba(103,232,249,.45) !important; color: #e0f2fe !important; }
+[data-testid="stMultiSelectTagsContainer"] [data-tag] * { color: #e0f2fe !important; }
+[data-testid="stMultiSelectTagsContainer"] [data-tag] button:hover { color: #fecaca !important; }
+
+/* sidebar section headings & labels a touch brighter */
+section[data-testid="stSidebar"] [data-testid="stWidgetLabel"] p { color: #cbd5e1 !important; font-weight: 500; }
+section[data-testid="stSidebar"] h3 { color: #f1f5f9 !important; }
 </style>
 """

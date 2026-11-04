@@ -50,17 +50,30 @@ def _window_shape(fig: go.Figure, p: WindowPick, tz: str, color: str, fill: str,
     x0, x1 = _x(p.start, tz), _x(p.end, tz)
     fig.add_shape(type="rect", xref="x", yref="paper", x0=x0, x1=x1, y0=0, y1=1, fillcolor=fill,
                   line=dict(color=color, width=2 if dash is None else 1.5, dash=dash), layer="above", name=name)
-    # Secondary windows: times below the x-axis tick labels; their scores are in the cards under the chart.
-    y, ya, shift = (1.0, "bottom", 0) if top else (0.0, "top", -20)
+    # Recommended window: times on the row ABOVE the panel titles, score above them, so nothing collides
+    # with the titles. Secondary windows: times below the x-axis tick labels, score tag inside the box.
+    y, ya, shift = (1.0, "bottom", 22) if top else (0.0, "top", -20)
     for x, anchor, t, nm in ((x0, "right", p.start, "start"), (x1, "left", p.end, "end")):
         fig.add_annotation(x=x, y=y, xref="x", yref="paper", text=f"<b>{time_label(t, tz)}</b>", showarrow=False,
                            xanchor=anchor, yanchor=ya, yshift=shift, font=dict(color=color, size=11),
                            name=f"{name}_{nm}", bgcolor="rgba(2,6,23,0.6)")
+    score = f"{p.score:.0f}" if np.isfinite(p.score) else "n/a"
+    xm = x0 + (x1 - x0) / 2
     if top:
-        score = f"{p.score:.0f}/100" if np.isfinite(p.score) else "n/a"
-        fig.add_annotation(x=x0 + (x1 - x0) / 2, y=0.5, xref="x", yref="paper", text=f"<b>{label}</b><br>{score}",
-                           showarrow=False, yanchor="middle", font=dict(color=color, size=10),
-                           bgcolor="rgba(2,6,23,0.85)", name=f"{name}_score")
+        fig.add_annotation(x=xm, y=1.0, xref="x", yref="paper", text=f"<b>{label} · {score}/100</b>", showarrow=False,
+                           yanchor="bottom", yshift=42, font=dict(color="#04121f", size=11), bgcolor=color,
+                           borderpad=3, name=f"{name}_score")
+    else:
+        fig.add_annotation(x=xm, y=0.0, xref="x", yref="paper", text=f"{label} · {score}", showarrow=False,
+                           yanchor="bottom", yshift=4, font=dict(color=color, size=10), bgcolor="rgba(2,6,23,0.85)",
+                           name=f"{name}_score")
+
+
+def _legend_box(fig: go.Figure, name: str, color: str, symbol: str) -> None:
+    """Legend-only entry explaining a window box."""
+    fig.add_trace(go.Scatter(x=[None], y=[None], mode="markers", name=name, hoverinfo="skip",
+                             marker=dict(symbol=symbol, size=13, color=color, line=dict(color=color, width=2))),
+                  row=1, col=1)
 
 
 def window_figure(result, compare: WindowPick | None = None, show_second: bool = True, height: int = 640) -> go.Figure:
@@ -144,11 +157,15 @@ def window_figure(result, compare: WindowPick | None = None, show_second: bool =
         fig.update_yaxes(title_text="flow index (est.)", range=[0, 1.05], showgrid=False, row=2, col=1, secondary_y=True)
 
     # ---------------- windows spanning both panels
+    if result.best is not None:
+        _legend_box(fig, "Recommended 90-min window", BEST, "square")
     if result.second is not None and show_second:
-        _window_shape(fig, result.second, tz, SECOND, "rgba(165,180,252,0.07)", "second_window", "dot", "2nd best",
+        _window_shape(fig, result.second, tz, SECOND, "rgba(165,180,252,0.07)", "second_window", "dot", "2nd",
                       top=False)
+        _legend_box(fig, "Second-best window (backup, no overlap)", SECOND, "square-open")
     if compare is not None:
         _window_shape(fig, compare, tz, COMPARE, "rgba(251,146,60,0.10)", "compare_window", "dash", "Compare", top=False)
+        _legend_box(fig, "Your comparison window", COMPARE, "square-open")
     if result.best is not None:
         _window_shape(fig, result.best, tz, BEST, "rgba(34,211,238,0.16)", "best_window", None, "Best")
 
@@ -162,7 +179,8 @@ def window_figure(result, compare: WindowPick | None = None, show_second: bool =
     fig.update_xaxes(range=[x[0], x[-1]], tickformat="%-I %p", nticks=8, tickangle=0, gridcolor=GRID,
                      showspikes=True, spikemode="across", spikecolor="#22d3ee", spikethickness=1)
     fig.update_yaxes(gridcolor=GRID, zeroline=False)
-    fig.update_annotations(selector=dict(xref="paper"), font=dict(size=12, color="#94a3b8"))
+    # Panel titles: left-aligned, away from the window labels drawn over the plot.
+    fig.update_annotations(selector=dict(xref="paper"), font=dict(size=12, color="#94a3b8"), x=0, xanchor="left")
     fig.update_layout(height=height, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(2,6,23,0.35)", font=FONT,
                       margin=dict(l=8, r=8, t=78, b=70), hovermode="x unified",
                       legend=dict(orientation="h", y=-0.17, yanchor="top", x=0, bgcolor="rgba(0,0,0,0)", font=dict(size=10)),

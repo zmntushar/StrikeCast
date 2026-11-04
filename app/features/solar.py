@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import math
 from datetime import date, datetime, timedelta, timezone
+from functools import lru_cache
 
 import ephem
 import numpy as np
@@ -45,6 +46,18 @@ def solar_elevation(lat: float, lon: float, index: pd.DatetimeIndex) -> np.ndarr
     idx = pd.DatetimeIndex(index)
     if len(idx) == 0:
         return np.array([], dtype=float)
+    freq = idx.freqstr if idx.freq is not None else None
+    if freq is not None:   # regular grids (the 5-minute window grid) are cached: every species reuses them
+        return _elev_cached(round(lat, 5), round(lon, 5), idx[0].tz_convert("UTC").value, len(idx), freq).copy()
+    return _elev(lat, lon, idx)
+
+
+@lru_cache(maxsize=512)
+def _elev_cached(lat: float, lon: float, start_ns: int, n: int, freq: str) -> np.ndarray:
+    return _elev(lat, lon, pd.date_range(pd.Timestamp(start_ns, tz="UTC"), periods=n, freq=freq))
+
+
+def _elev(lat: float, lon: float, idx: pd.DatetimeIndex) -> np.ndarray:
     obs = _obs(lat, lon, idx[0].to_pydatetime())
     sun = ephem.Sun()
     out = np.empty(len(idx))

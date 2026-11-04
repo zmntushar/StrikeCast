@@ -51,23 +51,37 @@ def chip(species: str, value: float | None, sub: str = "", pop: str = "") -> str
     return f'<span class="sc-tip" tabindex="0">{body}<span class="sc-pop">{pop}</span></span>'
 
 
-def species_popover(fc, sp: str, d: pd.DataFrame, wins: list, reg: dict, rec: dict, why: str) -> str:
-    """Detail card for one species at one spot: best windows, peak conditions, why, tackle, regs."""
+def span_text(start, end, tz: str, with_day: bool = True) -> str:
+    """'Thu 9:30–11:00 AM' (or '11:15 PM – 12:45 AM' when the halves differ)."""
+    s, e = pd.Timestamp(start).tz_convert(tz), pd.Timestamp(end).tz_convert(tz)
+    t = lambda x: x.strftime("%I:%M").lstrip("0")  # noqa: E731
+    body = (f"{t(s)}–{t(e)} {e:%p}" if f"{s:%p}" == f"{e:%p}" and s.date() == e.date()
+            else f"{t(s)} {s:%p} – {t(e)} {e:%p}")
+    return (f"{s:%a} " if with_day else "") + body
+
+
+def species_popover(fc, sp: str, d: pd.DataFrame, wins: list, reg: dict, rec: dict, why: str,
+                    prow: pd.Series | None = None) -> str:
+    """Detail card for one species at one spot.
+
+    ``wins`` = [(optimizer result, 90-min pick), ...] best first — the same windows as the Best 90 min tab.
+    ``prow`` = hourly conditions in the middle of the best window.
+    """
     tz = fc.spot.timezone
     meta = species_meta(sp)
     col = f"bite_{sp}"
     s = d[col].dropna() if col in d else pd.Series(dtype=float)
-    peak_ts = pd.Timestamp(wins[0].peak) if wins else (s.idxmax() if not s.empty else None)
-    pr = fc.hourly.loc[peak_ts] if peak_ts is not None and peak_ts in fc.hourly.index else None
-    lab, colr = score_label(s.max() if not s.empty else None)
+    peak_ts = None if wins else (s.idxmax() if not s.empty else None)
+    pr = prow if prow is not None else (fc.hourly.loc[peak_ts] if peak_ts is not None and peak_ts in fc.hourly.index else None)
+    lab, colr = score_label(wins[0][1].score if wins else (s.max() if not s.empty else None))
 
     if wins:
         win_html = "".join(
-            f'<div class="pw"><b>{window_text(w, tz)}</b> '
-            f'<span style="color:{score_label(w.peak_score)[1]}">peak {w.peak_score:.0f}</span></div>'
-            for w in wins[:3])
+            f'<div class="pw"><b>{span_text(p.start, p.end, tz)}</b> '
+            f'<span style="color:{score_label(p.score)[1]}">{p.score:.0f}/100</span></div>'
+            for _, p in wins[:3])
     elif peak_ts is not None:
-        win_html = (f'<div class="pw">No standout window · best hour '
+        win_html = (f'<div class="pw">No 90-minute window in this range and time of day · best hour '
                     f'<b>{hour_label(pd.Timestamp(peak_ts).tz_convert(tz))}</b> ({s.max():.0f})</div>')
     else:
         win_html = '<div class="pw">No data</div>'
@@ -106,8 +120,8 @@ def species_popover(fc, sp: str, d: pd.DataFrame, wins: list, reg: dict, rec: di
             if reg.get("size") else "")
     return (f'<span class="pt" style="border-color:{meta["color"]}">{esc(meta["name"])} · {esc(fc.spot.short)} '
             f'<span style="color:{colr}">{lab}</span></span>{reg_badge}'
-            f'<div class="ph">⏱ Best windows</div>{win_html}'
-            + (f'<div class="ph">At the peak hour</div>{cond}' if cond else "")
+            f'<div class="ph">⏱ Best 90-minute windows</div>{win_html}'
+            + (f'<div class="ph">{"During the best window" if wins else "At the peak hour"}</div>{cond}' if cond else "")
             + (f'<div class="ph">Why</div><div class="pn" style="color:#cbd5e1">{esc(why)}</div>' if why else "")
             + tackle + regs)
 

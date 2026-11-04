@@ -252,8 +252,50 @@ def in_tod(ts) -> bool:
     return tod[0] <= h < tod[1] if tod != (0, 24) else True
 
 
-def windows(fc, sp):
-    return [w for w in fc.windows.get(sp, []) if start_ts <= pd.Timestamp(w.peak) <= end_ts and in_tod(w.peak)]
+# ---- 90-minute windows: ONE source for every "best window" shown in the app -----------------
+N_CAL = {sp: len(sessions_with_predictions(sp)) for sp in SPECIES}
+if ss.get("w90_ver") != ss["fc"]["t"]:          # new data pulled: drop cached windows
+    ss["w90"], ss["w90_ver"] = {}, ss["fc"]["t"]
+
+
+def best_90(fc, sp: str, day, use_tod: bool = True):
+    """Optimizer result for a spot/species/local date, cached per data pull (and 15-min clock slot for today)."""
+    slot = pd.Timestamp.now(tz="UTC").floor("15min") if day == today_local else None
+    t = tuple(tod) if use_tod else (0, 24)
+    key = (fc.spot.id, sp, str(day), fc.generated_at, t, slot)
+    cache = ss.setdefault("w90", {})
+    if key not in cache:
+        cache[key] = window_for_forecast(fc, sp, day, calibration_sessions=N_CAL.get(sp, 0), tod=t)
+    return cache[key]
+
+
+def win_text(res, p, with_day: bool = False) -> str:
+    tz = res.tz
+    s, e = pd.Timestamp(p.start).tz_convert(tz), pd.Timestamp(p.end).tz_convert(tz)
+    nxt = "" if s.date() == e.date() else " (next day)"
+    return (f"{s:%a} " if with_day else "") + f"{time_label(p.start, tz)} – {time_label(p.end, tz)}{nxt}"
+
+
+def horizon_days() -> list:
+    d0 = start_ts.tz_convert(TZ).date()
+    d1 = min((end_ts - pd.Timedelta(minutes=1)).tz_convert(TZ).date(), today_local + timedelta(days=6))
+    return [d0 + timedelta(days=i) for i in range((d1 - d0).days + 1)]
+
+
+def windows(fc, sp) -> list:
+    """Each day's best 90-minute window inside the selected horizon, best first: [(result, pick), ...]."""
+    out = []
+    for day in horizon_days():
+        r = best_90(fc, sp, day)
+        if r.best is not None and start_ts <= r.best.start < end_ts:
+            out.append((r, r.best))
+    return sorted(out, key=lambda x: -x[1].score)
+
+
+def mid_row(fc, p):
+    """Hourly forecast row at the middle of a window (for conditions, tackle and the narrative)."""
+    ts = (p.start + (p.end - p.start) / 2).floor("h")
+    return ts, (fc.hourly.loc[ts] if ts in fc.hourly.index else None)
 
 
 fetched_at = ss["fc"]["at"]
@@ -291,18 +333,19 @@ tabs = st.tabs(["🎯 Today", "⏱️ Best 90 min", "🗺️ Map", "📈 7-Day F
 
 # ================================================================ helpers
 def best_bet(fcs: dict, sps: list[str], hours_ahead: int = 24):
+    """Highest-scoring 90-minute window starting in the next ``hours_ahead`` hours: (fc, species, result, pick)."""
     best = None
     t1 = start_ts + pd.Timedelta(hours=hours_ahead)
+    days = sorted({start_ts.tz_convert(TZ).date(), (t1 - pd.Timedelta(minutes=1)).tz_convert(TZ).date()})
     for fc in fcs.values():
-        d = fc.hourly.loc[start_ts:t1]
-        if tod != (0, 24):
-            d = d[[in_tod(t) for t in d.index]]
         for sp in sps:
-            if d.empty or f"bite_{sp}" not in d:
-                continue
-            s = d[f"bite_{sp}"]
-            if s.notna().any() and (best is None or s.max() > best[3]):
-                best = (fc, sp, s.idxmax(), float(s.max()))
+            for day in days:
+                if day > today_local + timedelta(days=6):
+                    continue
+                r = best_90(fc, sp, day)
+                p = r.best
+                if p is not None and start_ts <= p.start < t1 and (best is None or p.score > best[3].score):
+                    best = (fc, sp, r, p)
     return best
 
 
@@ -311,22 +354,30 @@ def spot_card(fc) -> str:
     d = view(fc)
     depth = fc.bathy.max_depth_cast_m if fc.bathy and fc.bathy.ok else None
     chip_html = []
+    best_by_sp = {}
     for sp in species:
         ws_sp = windows(fc, sp)
         s_sp = d[f"bite_{sp}"].dropna() if not d.empty else pd.Series(dtype=float)
-        peak_ts = pd.Timestamp(ws_sp[0].peak) if ws_sp else (s_sp.idxmax() if not s_sp.empty else None)
-        prow = fc.hourly.loc[peak_ts] if peak_ts is not None else row
+        if ws_sp:
+            best_by_sp[sp] = ws_sp[0]
+            peak_ts, prow = mid_row(fc, ws_sp[0][1])
+        else:
+            peak_ts = s_sp.idxmax() if not s_sp.empty else None
+            prow = fc.hourly.loc[peak_ts] if peak_ts is not None else None
+        prow = prow if prow is not None else row
         reg = season_status(sp, (peak_ts if peak_ts is not None else start_ts).tz_convert(fc.spot.timezone).date())
         rec = recommend(sp, prow, fc.spot.environment, depth)
         why = narrative(prow, sp, fc.spot) if peak_ts is not None else ""
-        pop = species_popover(fc, sp, d, ws_sp, reg, rec, why)
+        pop = species_popover(fc, sp, d, ws_sp, reg, rec, why, prow if ws_sp else None)
         peak_txt = f"· peak {fmt(s_sp.max() if not s_sp.empty else None)}"
         chip_html.append(chip(sp, float(row.get(f"bite_{sp}", np.nan)), peak_txt, pop=pop))
     chips = "".join(chip_html)
-    top_sp = max(species, key=lambda s: d[f"bite_{s}"].max() if not d.empty else -1)
-    ws = windows(fc, top_sp)
-    win = (f'<div class="sc-window">⏱ Best {esc(species_meta(top_sp)["short"])} window: <b>{window_text(ws[0], fc.spot.timezone)}</b>'
-           f' · peak {ws[0].peak_score:.0f}</div>') if ws else '<div class="sc-window">No standout window in this range.</div>'
+    if best_by_sp:
+        top_sp, (tr, tp) = max(best_by_sp.items(), key=lambda kv: kv[1][1].score)
+        win = (f'<div class="sc-window">⏱ Best 90 min for {esc(species_meta(top_sp)["short"])}: '
+               f'<b>{win_text(tr, tp, with_day=True)}</b> · {tp.score:.0f}/100</div>')
+    else:
+        win = '<div class="sc-window">No 90-minute window in this range and time of day.</div>'
     g = fc.quality["grade"]
     gcol = {"A": "#22c55e", "B": "#84cc16", "C": "#f59e0b", "D": "#ef4444"}[g]
     return f"""<div class="sc-card sc-spot">
@@ -346,17 +397,6 @@ def spot_card(fc) -> str:
     </div>"""
 
 
-def best_90(fc, sp: str, day):
-    """90-minute window result for a forecast (recomputed whenever data, spot, species or date change)."""
-    return window_for_forecast(fc, sp, day, calibration_sessions=len(sessions_with_predictions(sp)))
-
-
-def win_text(res, p) -> str:
-    tz = res.tz
-    nxt = "" if pd.Timestamp(p.start).tz_convert(tz).date() == pd.Timestamp(p.end).tz_convert(tz).date() else " (next day)"
-    return f"{time_label(p.start, tz)} – {time_label(p.end, tz)}{nxt}"
-
-
 CONF_COLOR = {"High": "#22c55e", "Medium": "#f59e0b", "Low": "#ef4444"}
 
 
@@ -364,28 +404,23 @@ CONF_COLOR = {"High": "#22c55e", "Medium": "#f59e0b", "Low": "#ef4444"}
 with tabs[0]:
     bb = best_bet(VIS, species, min(hours, 24))
     if bb:
-        fc, sp, ts, val = bb
+        fc, sp, hres, hp = bb
+        val = hp.score
         lab, color = score_label(val)
-        row = fc.hourly.loc[ts]
-        ws = [w for w in fc.windows.get(sp, []) if pd.Timestamp(w.start) <= ts < pd.Timestamp(w.end)]
-        wtxt = window_text(ws[0], fc.spot.timezone) if ws else hour_label(ts.tz_convert(fc.spot.timezone))
-        reg = season_status(sp, ts.tz_convert(fc.spot.timezone).date())
+        ts, row = mid_row(fc, hp)
+        row = row if row is not None else fc.now_row()
+        when_txt = "today" if hres.day == today_local else f"{hres.day:%a}"
+        wtxt = f"{when_txt} {win_text(hres, hp)}"
+        reg = season_status(sp, hres.day)
         reg_html = ('<span class="sc-badge" style="background:#14532d;color:#bbf7d0">Season open</span>' if reg.get("open")
                     else '<span class="sc-badge" style="background:#7f1d1d;color:#fecaca">Season closed — C&R only</span>')
-        hero_win = ""
-        try:
-            hres = best_90(fc, sp, ts.tz_convert(fc.spot.timezone).date())
-            if hres.best is not None:
-                when_txt = "today" if hres.day == today_local else f"on {hres.day:%a}"
-                hero_win = (f'<div class="sc-window">⏱ Best 90 minutes {when_txt}: '
-                            f'<b>{win_text(hres, hres.best)}</b> · suitability <b>{hres.best.score:.0f}/100</b> · '
-                            f'confidence {hres.confidence["label"].lower()} — details in the ⏱️ Best 90 min tab</div>')
-        except Exception:  # noqa: BLE001 — never break the landing card
-            hero_win = ""
+        hero_win = (f'<div class="sc-window">⏱ Best 90 minutes, scored 0–100 for {esc(species_meta(sp)["short"].lower())} · '
+                    f'forecast confidence {hres.confidence["label"].lower()} — '
+                    f'{esc(hres.explanation["summary"])} Details in the ⏱️ Best 90 min tab.</div>')
         c1, c2 = st.columns([1.35, 1])
         with c1:
             st.markdown(f"""<div class="sc-card sc-hero">
-              <div class="sc-sub" style="text-transform:uppercase;letter-spacing:.08em">Best bet · next {min(hours, 24)} h</div>
+              <div class="sc-sub" style="text-transform:uppercase;letter-spacing:.08em">Best bet · best 90 minutes in the next {min(hours, 24)} h</div>
               <div style="display:flex;align-items:center;gap:1rem;margin:.4rem 0 .6rem">
                 <div class="big" style="color:{color}">{val:.0f}</div>
                 <div><div style="font-size:1.25rem;font-weight:700;color:#f8fafc">{esc(species_meta(sp)['name'])}</div>
@@ -430,32 +465,32 @@ with tabs[0]:
             dist = km_to_mi(haversine_km(center[0], center[1], fc.spot.lat, fc.spot.lon))
             if dist > radius:
                 continue
-            d = view(fc)
-            best_sp = max(species, key=lambda s: d[f"bite_{s}"].max() if not d.empty else -1)
-            ws = windows(fc, best_sp)
+            cands = [(sp_, w_) for sp_ in species for w_ in windows(fc, sp_)[:1]]
+            best_sp, bw = max(cands, key=lambda c_: c_[1][1].score) if cands else (species[0], None)
             near.append({"Spot": ("★ " if fc.spot.favorite else "") + fc.spot.name, "Distance (mi)": round(dist, 1),
                          "Type": fc.spot.environment.replace("_", " "), "Best species": species_meta(best_sp)["short"],
-                         "Peak": d[f"bite_{best_sp}"].max() if not d.empty else np.nan,
-                         "Best window": window_text(ws[0], fc.spot.timezone) if ws else "—"})
+                         "Peak": bw[1].score if bw else np.nan,
+                         "Best 90 min": win_text(bw[0], bw[1], with_day=True) if bw else "—"})
         if near:
             st.dataframe(pd.DataFrame(near).sort_values("Peak", ascending=False), hide_index=True, use_container_width=True,
-                         column_config={"Peak": st.column_config.ProgressColumn("Peak", min_value=0, max_value=100, format="%.0f")})
+                         column_config={"Peak": st.column_config.ProgressColumn("Best 90-min score", min_value=0, max_value=100, format="%.0f")})
         else:
             st.info("No configured spots inside that radius — widen it, or use Coordinates to forecast an exact spot.")
-    st.markdown(f"#### 🏆 Top windows · {horizon} from {start_day:%a %b %d}")
+    st.markdown(f"#### 🏆 Top 90-minute windows · {horizon} from {start_day:%a %b %d}")
     rows = []
     for fc in VIS.values():
         for sp in species:
-            for w in windows(fc, sp)[:2]:
+            for r_, w in windows(fc, sp)[:2]:
+                seg_ = r_.frame.loc[w.start:w.end]
                 rows.append({"Species": species_meta(sp)["short"], "Spot": ("★ " if fc.spot.favorite else "") + fc.spot.name,
-                             "Window": window_text(w, fc.spot.timezone), "Peak": w.peak_score, "Avg": w.mean_score,
-                             "Tide at peak": fc.hourly.loc[pd.Timestamp(w.peak)].get("tide_stage") or "—",
-                             "Light": fc.hourly.loc[pd.Timestamp(w.peak)].get("light_phase")})
+                             "Window": win_text(r_, w, with_day=True), "Score": w.score,
+                             "Confidence": r_.confidence["label"],
+                             "Tide": seg_["tide_stage"].iloc[len(seg_) // 2] or "—" if len(seg_) else "—",
+                             "Light": r_.explanation.get("light", "—")})
     if rows:
-        tdf = pd.DataFrame(rows).sort_values("Peak", ascending=False).head(25)
+        tdf = pd.DataFrame(rows).sort_values("Score", ascending=False).head(25)
         st.dataframe(tdf, hide_index=True, use_container_width=True,
-                     column_config={"Peak": st.column_config.ProgressColumn("Peak", min_value=0, max_value=100, format="%.0f"),
-                                    "Avg": st.column_config.NumberColumn(format="%.0f")})
+                     column_config={"Score": st.column_config.ProgressColumn("Score", min_value=0, max_value=100, format="%.0f")})
     else:
         st.info("No standout windows for the current filters — try widening the time-of-day range or horizon.")
 
@@ -515,6 +550,8 @@ with tabs[1]:
             st.info("Every 90-minute window that starts today has already begun — showing the best of the day for reference.")
         elif res.day == today_local:
             st.caption("For today, only windows that haven't started yet are considered.")
+        if tod != (0, 24):
+            st.caption(f"Limited to windows starting {tod[0]}:00–{tod[1]}:00 (sidebar ▸ Time of day for best windows).")
         if res.day == today_local and (res.elapsed or b_.score < 40) and wday < today_local + timedelta(days=6):
             nxt_r = best_90(wfc, wsp, today_local + timedelta(days=1))
             if nxt_r.best is not None and nxt_r.best.score > b_.score:
@@ -682,9 +719,10 @@ with tabs[3]:
         for col, (lab, v, note) in zip(k, kpis):
             col.markdown(f'<div class="sc-card sc-kpi"><div class="lab">{esc(lab)}</div><div class="val">{fmt(v, "{:.1f}" if lab == "Water temp" else "{:.0f}")}{"°F" if lab == "Water temp" else ""}</div>'
                          f'<div class="note">{esc(note)}</div></div>', unsafe_allow_html=True)
-        st.caption("Indices are environmental suitability scores (0–100). Shaded columns = night; cyan bands = best windows for "
-                   f"{species_meta(species[0])['short']}.")
-        st.plotly_chart(charts.forecast_timeline(fc, species, d), use_container_width=True, config={"displayModeBar": False})
+        st.caption("Indices are environmental suitability scores (0–100). Shaded columns = night; cyan bands = each day's "
+                   f"best 90-minute window for {species_meta(species[0])['short']}.")
+        st.plotly_chart(charts.forecast_timeline(fc, species, d, bands=[(p_.start, p_.end) for _, p_ in windows(fc, species[0])]),
+                        use_container_width=True, config={"displayModeBar": False})
         st.markdown("##### Species × hour")
         st.plotly_chart(charts.species_heatmap(fc, species, d), use_container_width=True, config={"displayModeBar": False})
 
@@ -941,7 +979,7 @@ with tabs[6]:
         feats = feature_snapshot(src_fc, when)
         pred = None
         try:
-            pred = session_prediction(best_90(src_fc, lsp, ldate), when, until)
+            pred = session_prediction(best_90(src_fc, lsp, ldate, use_tod=False), when, until)
         except Exception as exc:  # noqa: BLE001 — the trip is still worth saving
             st.warning(f"Could not attach the window prediction: {exc}")
         oid = add_observation({"spot_id": sid, "start_utc": when, "end_utc": until,

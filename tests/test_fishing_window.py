@@ -297,3 +297,32 @@ def test_works_from_a_forecast_with_no_data():
     r = compute_window(inp, "blackfish", day)
     assert r.current_source == cm.MISSING and r.confidence["label"] == "Low"
     assert "tide predictions" in r.confidence["missing"]
+
+
+# ------------------------------------------------------------ consistency
+def test_time_of_day_limit_restricts_window_starts():
+    r = compute_window(inputs(), "fluke", DAY, now=PAST, tod=(5, 9))
+    for p in (r.best, r.second):
+        assert 5 <= p.start.tz_convert(TZ).hour < 9
+    none = compute_window(inputs(), "fluke", DAY, now=PAST, tod=(3, 3))
+    assert none.best is None and none.second is None
+
+
+def test_vectorized_window_scores_match_interval_score():
+    from app.models.window_optimizer import candidate_scores, interval_score
+    r = compute_window(inputs(with_current=True), "striped_bass", DAY, now=PAST)
+    fast = candidate_scores(r.frame["total"], r.starts).to_numpy()
+    slow = np.array([interval_score(r.frame["total"], s) for s in r.starts])
+    assert np.allclose(fast, slow, equal_nan=True)
+
+
+def test_main_page_popover_shows_the_optimizer_windows():
+    """The hover card must list exactly the 90-minute windows the Best 90 min tab recommends."""
+    from types import SimpleNamespace
+    from dashboard.components.ui import span_text, species_popover
+    r = compute_window(inputs(with_current=True), "striped_bass", DAY, now=PAST)
+    fc = SimpleNamespace(spot=SimpleNamespace(timezone=TZ, short="Test"), hourly=pd.DataFrame())
+    html = species_popover(fc, "striped_bass", pd.DataFrame(), [(r, r.best)], {}, {}, "")
+    assert span_text(r.best.start, r.best.end, TZ) in html
+    assert f"{r.best.score:.0f}/100" in html
+    assert "Best 90-minute windows" in html

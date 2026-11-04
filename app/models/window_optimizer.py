@@ -42,9 +42,36 @@ def interval_score(score: pd.Series, start: pd.Timestamp, length: pd.Timedelta =
     return float(np.sum(np.nan_to_num(v) * w) / np.sum(w))
 
 
+def _all_scores(score: pd.Series, length: pd.Timedelta) -> np.ndarray:
+    """Window score for every grid position at once (same math as ``interval_score``, vectorized)."""
+    v = score.to_numpy(dtype=float)
+    n = int(length / _step(score)) + 1
+    out = np.full(len(v), np.nan)
+    if len(v) < n:
+        return out
+    win = np.lib.stride_tricks.sliding_window_view(v, n)
+    ok = ~np.isnan(win)
+    w = np.ones(n)
+    w[0] = w[-1] = 0.5
+    wts = ok * w
+    with np.errstate(invalid="ignore", divide="ignore"):
+        vals = np.sum(np.nan_to_num(win) * wts, axis=1) / np.sum(wts, axis=1)
+    vals[ok.sum(axis=1) < MIN_COVERAGE * n] = np.nan
+    out[:len(vals)] = vals
+    return out
+
+
+def candidate_scores(score: pd.Series, starts: pd.DatetimeIndex, length: pd.Timedelta = WINDOW) -> pd.Series:
+    """Window score for every candidate start."""
+    pos = score.index.get_indexer(starts)
+    allv = _all_scores(score, length)
+    vals = np.where(pos >= 0, allv[np.clip(pos, 0, None)], np.nan)
+    return pd.Series(vals, index=starts)
+
+
 def rank_windows(score: pd.Series, starts: pd.DatetimeIndex, length: pd.Timedelta = WINDOW, k: int = 2) -> list[WindowPick]:
     """Best ``k`` mutually non-overlapping windows whose start is in ``starts``."""
-    vals = np.array([interval_score(score, s, length) for s in starts])
+    vals = candidate_scores(score, starts, length).to_numpy()
     order = [i for i in np.argsort(-np.nan_to_num(vals, nan=-1), kind="stable") if not np.isnan(vals[i])]
     picks: list[WindowPick] = []
     for i in order:
@@ -54,11 +81,6 @@ def rank_windows(score: pd.Series, starts: pd.DatetimeIndex, length: pd.Timedelt
             if len(picks) == k:
                 break
     return picks
-
-
-def candidate_scores(score: pd.Series, starts: pd.DatetimeIndex, length: pd.Timedelta = WINDOW) -> pd.Series:
-    """Window score for every candidate start (for charts / diagnostics)."""
-    return pd.Series([interval_score(score, s, length) for s in starts], index=starts)
 
 
 def _step(s: pd.Series) -> pd.Timedelta:
