@@ -18,6 +18,8 @@ from sqlalchemy import (
     Text,
     create_engine,
     event,
+    inspect,
+    text,
 )
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
@@ -69,6 +71,25 @@ class Observation(Base):
     source: Mapped[str] = mapped_column(String(64), default="strikecast_log")
     # JSON snapshot of environmental features at the time of the trip
     features_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Fishing-session feedback (added with the 90-minute window optimizer)
+    end_utc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    bites: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # JSON: the window optimizer's predictions for that spot/date/species and for the fished interval
+    prediction_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+# Columns added after the first release: (table, column, SQL type). create_all() never
+# alters an existing table, so older databases get them via ALTER TABLE ADD COLUMN.
+_ADDED_COLUMNS = [("observations", "end_utc", "TIMESTAMP"), ("observations", "bites", "INTEGER"),
+                  ("observations", "prediction_json", "TEXT")]
+
+
+def _migrate(engine: Engine) -> None:
+    insp = inspect(engine)
+    for table, col, typ in _ADDED_COLUMNS:
+        if table in insp.get_table_names() and col not in {c["name"] for c in insp.get_columns(table)}:
+            with engine.begin() as conn:
+                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {typ}"))
 
 
 _engine: Engine | None = None
@@ -92,6 +113,7 @@ def get_engine() -> Engine:
                     cur.execute("PRAGMA synchronous=NORMAL")
                     cur.close()
             Base.metadata.create_all(_engine)
+            _migrate(_engine)
             _Session = sessionmaker(bind=_engine, expire_on_commit=False, future=True)
     return _engine
 

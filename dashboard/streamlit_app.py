@@ -21,6 +21,7 @@ st.set_page_config(page_title="StrikeCast · Long Island Fishing Forecast", page
 from app.core.config import regulations_config  # noqa: E402
 from app.core.geo import compass, haversine_km, km_to_mi  # noqa: E402
 from app.core.http import HttpClient  # noqa: E402
+from app.features.solar import light_band  # noqa: E402
 from app.ml.train import model_exists, train_species  # noqa: E402
 from app.models.bite import explain_hour, narrative, score_label, season_status, tactic  # noqa: E402
 from app.models.common import species_list, species_meta  # noqa: E402
@@ -29,10 +30,13 @@ from app.services import my_spots  # noqa: E402
 from app.services.compare import compare_dates  # noqa: E402
 from app.services.forecast import (collect, feature_snapshot, forecast_frame, get_spot,  # noqa: E402
                                    historical_frame, load_spots, run_sync)
+from app.services.fishing_window import compare_window, window_changed, window_for_forecast  # noqa: E402
 from app.services.observations import (add_observation, delete_observation, export_csv,  # noqa: E402
-                                       import_csv, list_observations)
+                                       import_csv, list_observations, sessions_with_predictions)
+from app.services.session_eval import component_signals, evaluate, session_prediction  # noqa: E402
 from app.services.stations import build_custom_spot  # noqa: E402
 from dashboard.components import charts  # noqa: E402
+from dashboard.components.window_chart import time_label, window_figure  # noqa: E402
 from dashboard.components.maps import build_map  # noqa: E402
 from dashboard.components.styles import CSS  # noqa: E402
 from app.models.tackle import recommend  # noqa: E402
@@ -192,7 +196,20 @@ with st.sidebar:
     tod = st.slider("Time of day for best windows", 0, 24, (0, 24), format="%d:00")
     st.toggle("Shore-based fishing", value=True, disabled=True, help="Boat-based mode is on the roadmap.")
     refresh = st.button("🔄 Refresh live data", use_container_width=True, type="primary")
+    auto = st.toggle("Auto-update when new data is due", value=True,
+                     help=f"Re-pulls data every {CACHE_MIN} min while this page is open (each provider is cached for its own "
+                          "update cycle, so only expired data is fetched) and re-optimizes the fishing windows.")
     st.caption("Data is cached locally per provider update cycle; refresh pulls anything that has expired.")
+
+
+@st.fragment(run_every="5m")
+def _auto_update() -> None:
+    hit = ss.get("fc")
+    if auto and hit and time.time() - hit["t"] >= CACHE_MIN * 60:
+        st.rerun()
+
+
+_auto_update()
 
 # ================================================================== data
 spots_to_fetch = ALL_SPOTS + ([custom] if custom and custom.id not in BY_ID else [])
@@ -268,7 +285,7 @@ for ev, items in list(alerts.items())[:3]:
     st.markdown(f'<div class="sc-alert">⚠️ <b>{esc(ev)}</b>{esc(until)}{esc(zones)} — NWS Upton. '
                 f'<span style="opacity:.8">{esc(last.headline)}</span></div>', unsafe_allow_html=True)
 
-tabs = st.tabs(["🎯 Today", "🗺️ Map", "📈 7-Day Forecast", "🌊 Conditions & Data", "🔁 Compare Dates",
+tabs = st.tabs(["🎯 Today", "⏱️ Best 90 min", "🗺️ Map", "📈 7-Day Forecast", "🌊 Conditions & Data", "🔁 Compare Dates",
                 "📓 Fishing Log", "📘 Species & Regs"])
 
 
@@ -329,6 +346,20 @@ def spot_card(fc) -> str:
     </div>"""
 
 
+def best_90(fc, sp: str, day):
+    """90-minute window result for a forecast (recomputed whenever data, spot, species or date change)."""
+    return window_for_forecast(fc, sp, day, calibration_sessions=len(sessions_with_predictions(sp)))
+
+
+def win_text(res, p) -> str:
+    tz = res.tz
+    nxt = "" if pd.Timestamp(p.start).tz_convert(tz).date() == pd.Timestamp(p.end).tz_convert(tz).date() else " (next day)"
+    return f"{time_label(p.start, tz)} – {time_label(p.end, tz)}{nxt}"
+
+
+CONF_COLOR = {"High": "#22c55e", "Medium": "#f59e0b", "Low": "#ef4444"}
+
+
 # ==================================================================== TODAY
 with tabs[0]:
     bb = best_bet(VIS, species, min(hours, 24))
@@ -341,6 +372,16 @@ with tabs[0]:
         reg = season_status(sp, ts.tz_convert(fc.spot.timezone).date())
         reg_html = ('<span class="sc-badge" style="background:#14532d;color:#bbf7d0">Season open</span>' if reg.get("open")
                     else '<span class="sc-badge" style="background:#7f1d1d;color:#fecaca">Season closed — C&R only</span>')
+        hero_win = ""
+        try:
+            hres = best_90(fc, sp, ts.tz_convert(fc.spot.timezone).date())
+            if hres.best is not None:
+                when_txt = "today" if hres.day == today_local else f"on {hres.day:%a}"
+                hero_win = (f'<div class="sc-window">⏱ Best 90 minutes {when_txt}: '
+                            f'<b>{win_text(hres, hres.best)}</b> · suitability <b>{hres.best.score:.0f}/100</b> · '
+                            f'confidence {hres.confidence["label"].lower()} — details in the ⏱️ Best 90 min tab</div>')
+        except Exception:  # noqa: BLE001 — never break the landing card
+            hero_win = ""
         c1, c2 = st.columns([1.35, 1])
         with c1:
             st.markdown(f"""<div class="sc-card sc-hero">
@@ -351,7 +392,7 @@ with tabs[0]:
                 <div style="color:#cbd5e1">at <b>{esc(fc.spot.name)}</b> · {esc(wtxt)} · <b style="color:{color}">{lab}</b> {reg_html}</div></div>
               </div>
               <div class="sc-explain">{esc(narrative(row, sp, fc.spot))}</div>
-              <div class="sc-window">🎯 Try: {esc(tactic(row, sp))}</div>
+              <div class="sc-window">🎯 Try: {esc(tactic(row, sp))}</div>{hero_win}
             </div>""", unsafe_allow_html=True)
         with c2:
             st.plotly_chart(charts.factor_chart(explain_hour(row, sp, fc.spot)), use_container_width=True,
@@ -418,8 +459,161 @@ with tabs[0]:
     else:
         st.info("No standout windows for the current filters — try widening the time-of-day range or horizon.")
 
-# ====================================================================== MAP
+# ============================================================ BEST 90 MIN
 with tabs[1]:
+    st.markdown("The single most favorable **90-minute** stretch for one species, found by scoring every 90-minute "
+                "window of the day in 5-minute steps from sun elevation, tide, tidal current, habitat, season, water "
+                "temperature and the hourly weather forecast — weighted per species.")
+    names = {fc.spot.name: sid for sid, fc in VIS.items()}
+    ids = list(names.values())
+    c1, c2, c3 = st.columns([1.5, 1, 1])
+    wsel = names[c1.selectbox("Location", list(names), key="win_spot",
+                              index=ids.index(focus_id) if focus_id in ids else 0)]
+    wday = c2.date_input("Date", value=today_local, min_value=today_local, max_value=today_local + timedelta(days=6),
+                         key="win_day")
+    wsp = c3.selectbox("Species", SPECIES, index=SPECIES.index(species[0]) if species and species[0] in SPECIES else 0,
+                       format_func=lambda s_: species_meta(s_)["name"], key="win_sp")
+    wfc = VIS[wsel]
+    res = best_90(wfc, wsp, wday)
+    tzw = res.tz
+
+    # Remember the recommendation so a data update that moves it is called out.
+    wkey = (wsel, wsp, str(wday))
+    prev = ss.setdefault("win_last", {}).get(wkey)
+    moved_note = ""
+    if prev and prev["generated_at"] != wfc.generated_at and window_changed(prev["best"], res.best) and res.best is not None:
+        moved_note = (f"🔄 New data moved the recommended window from {win_text(res, prev['best'])} "
+                      f"to {win_text(res, res.best)}." if prev["best"] is not None else "🔄 Updated with new data.")
+    ss["win_last"][wkey] = {"generated_at": wfc.generated_at, "best": res.best}
+
+    conf = res.confidence
+    ccol = CONF_COLOR[conf["label"]]
+    meta_w = species_meta(wsp)
+    if res.best is None:
+        st.warning(res.explanation["summary"])
+    else:
+        b_ = res.best
+        lab, colr = score_label(b_.score)
+        sec = (f'<div class="sc-sub" style="margin-top:.5rem">Second-best: <b>{win_text(res, res.second)}</b> · '
+               f'{res.second.score:.0f}/100</div>') if res.second else ""
+        bullets = "".join(f"<li>{esc(t)}</li>" for t in res.explanation["bullets"])
+        st.markdown(f"""<div class="sc-card sc-hero">
+          <div class="sc-sub" style="text-transform:uppercase;letter-spacing:.08em">{esc(meta_w['name'])} · {esc(wfc.spot.name)} ·
+            {wday:%a %b %d} · <span title="behavioral categories">{esc(res.profile.category_label)}</span></div>
+          <div style="display:flex;align-items:center;gap:1.4rem;flex-wrap:wrap;margin:.45rem 0 .5rem">
+            <div><div class="sc-sub">Optimal window</div>
+              <div style="font-size:1.55rem;font-weight:700;color:#f8fafc">{win_text(res, b_)}</div></div>
+            <div><div class="sc-sub">Suitability</div>
+              <div style="font-size:1.55rem;font-weight:700;color:{colr}">{b_.score:.0f}<span style="font-size:.9rem;color:#94a3b8">/100</span></div></div>
+            <div><div class="sc-sub">Forecast confidence</div>
+              <span class="sc-badge" style="background:{ccol}22;color:{ccol};border:1px solid {ccol}66;font-size:.9rem">{conf['label']} · {conf['score']}/100</span></div>
+          </div>
+          <div class="sc-explain"><b>Why:</b> {esc(res.explanation['summary'])}</div>
+          <ul class="sc-explain" style="font-size:.85rem;margin:.35rem 0 0 0;padding-left:1.1rem">{bullets}</ul>{sec}
+        </div>""", unsafe_allow_html=True)
+        if res.elapsed:
+            st.info("Every 90-minute window that starts today has already begun — showing the best of the day for reference.")
+        elif res.day == today_local:
+            st.caption("For today, only windows that haven't started yet are considered.")
+        if res.day == today_local and (res.elapsed or b_.score < 40) and wday < today_local + timedelta(days=6):
+            nxt_r = best_90(wfc, wsp, today_local + timedelta(days=1))
+            if nxt_r.best is not None and nxt_r.best.score > b_.score:
+                st.info(f"What's left of today scores low. Tomorrow's best window: **{win_text(nxt_r, nxt_r.best)}** "
+                        f"· {nxt_r.best.score:.0f}/100 — pick tomorrow's date above for details.")
+    if moved_note:
+        st.success(moved_note)
+
+    # Comparison window: scored on its own, never replaces the recommendation.
+    d0 = pd.Timestamp(wday)
+    d_last = (d0 + pd.Timedelta(hours=23, minutes=55)).to_pydatetime()
+    cmp_on = st.toggle("Compare another 90-minute window", value=False, key="win_cmp_on",
+                       help="Drag the slider to place a second window anywhere in the day; the recommended window stays put.")
+    cmp = None
+    if cmp_on:
+        default = res.second.start if res.second else (res.best.start if res.best else d0.tz_localize(tzw))
+        dflt = pd.Timestamp(default).tz_convert(tzw).tz_localize(None).to_pydatetime()
+        cstart = st.slider("Comparison window start", min_value=d0.to_pydatetime(), max_value=d_last,
+                           value=min(max(dflt, d0.to_pydatetime()), d_last), step=timedelta(minutes=5),
+                           format="hh:mm A", key="win_cmp_start")
+        cmp = compare_window(res, pd.Timestamp(cstart).tz_localize(tzw, ambiguous=True, nonexistent="shift_forward"))
+
+    st.plotly_chart(window_figure(res, compare=cmp["pick"] if cmp else None, show_second=cmp is None),
+                    use_container_width=True,
+                    config={"displayModeBar": False, "scrollZoom": False})
+    st.caption("Both panels share one time axis — hover anywhere to read sun, tide and current at that moment. "
+               "Shading: night · twilight · daylight (top); flood = green, ebb = pink (bottom). "
+               "Cyan box = recommended window; " + ("orange = your comparison." if cmp else "dotted = second best."))
+    if cmp:
+        cp = cmp["pick"]
+        diff = (cp.score - res.best.score) if res.best and np.isfinite(cp.score) else np.nan
+        st.markdown(f'<div class="sc-card">🟧 <b>Comparison {win_text(res, cp)}</b> · suitability '
+                    f'<b>{fmt(cp.score)}/100</b>' + (f' · {diff:+.0f} vs the recommended window' if isnum(diff) else "")
+                    + "</div>", unsafe_allow_html=True)
+
+    st.markdown("##### 🔎 Suitability factors")
+    rows_f = []
+    cmp_f = {f_["component"]: f_ for f_ in (cmp["factors"] if cmp else [])}
+    for f_ in res.explanation["factors"]:
+        r_ = {"Factor": f_["label"], "Weight": f_["weight"] * 100 if f_["weight"] is not None else np.nan,
+              "Best window": f_["window"] * 100}
+        if cmp:
+            r_["Comparison"] = cmp_f.get(f_["component"], {}).get("window", np.nan) * 100
+        r_.update({"Day average": f_["day"] * 100, "Data": f_["kind"] + (" · limiting" if f_.get("limiting") else ""),
+                   "Detail": f_["detail"]})
+        rows_f.append(r_)
+    if rows_f:
+        def _pc(t):
+            return st.column_config.ProgressColumn(t, min_value=0, max_value=100, format="%.0f")
+        st.dataframe(pd.DataFrame(rows_f), hide_index=True, use_container_width=True,
+                     column_config={"Weight": st.column_config.NumberColumn(format="%.0f%%"), "Best window": _pc("Best window"),
+                                    "Comparison": _pc("Comparison"), "Day average": _pc("Day average")})
+    st.caption("Factor scores are 0–100 (100 = most favorable for this species). Suitability is relative environmental "
+               "favorability — not a probability of catching fish.")
+
+    with st.expander("🕒 Inspect conditions at a specific time"):
+        grid_local = res.frame.index[:-18]
+        ti = st.select_slider("Time", options=list(range(len(grid_local))),
+                              value=min(len(grid_local) - 1, 72), key="win_inspect",
+                              format_func=lambda i: time_label(grid_local[i], tzw))
+        rr = res.frame.loc[grid_local[ti]]
+        cur_txt = (f"{rr['current_kt']:+.2f} kt ({rr['current_phase']})" if isnum(rr.get("current_kt"))
+                   else f"flow index {rr['current_norm']:.2f} (estimated from tide phase)" if isnum(rr.get("current_norm"))
+                   else "no current data")
+        cells = [("Sun", f"{rr['sun_alt']:+.1f}° · {light_band(rr['sun_alt'])[0]}"),
+                 ("Tide", f"{fmt(rr.get('tide_ft'), '{:.2f}')} ft · {rr.get('tide_stage') or '—'}"),
+                 ("Current", cur_txt), ("Suitability", f"{fmt(rr['total'])}/100")]
+        st.markdown('<div class="sc-card"><div class="sc-cond">' + "".join(
+            f"<div><span>{esc(k)}</span> {esc(v)}</div>" for k, v in cells) + "</div></div>", unsafe_allow_html=True)
+        st.dataframe(pd.DataFrame([{"Factor": lab_, "Score": (rr.get(c_) if isnum(rr.get(c_)) else np.nan) * 100}
+                                   for c_, lab_ in [("solar", "Light"), ("current", "Current"), ("tide", "Tide phase"),
+                                                    ("habitat", "Habitat"), ("seasonal", "Season"),
+                                                    ("temperature", "Water temp"), ("conditions", "Weather & surf")]]),
+                     hide_index=True, use_container_width=True,
+                     column_config={"Score": st.column_config.ProgressColumn(min_value=0, max_value=100, format="%.0f")})
+
+    with st.expander(f"✅ Forecast confidence · {conf['label']} ({conf['score']}/100) · inputs & data types"):
+        for t in conf["estimated"]:
+            st.markdown(f"- ⚠️ **Estimated:** {t}")
+        for t in conf["missing"]:
+            st.markdown(f"- ❌ **Missing:** {t}")
+        for t in conf["reasons"]:
+            st.markdown(f"- {t}")
+        srows_w = "".join(f"<tr><td>{esc(s_.feature)}</td><td>{kind_badge(s_.kind.value)}</td><td>{esc(s_.provider)}</td>"
+                          f"<td>{esc(s_.station_id or '')}</td></tr>" for s_ in wfc.sources)
+        st.markdown(f'<div class="sc-card" style="overflow-x:auto"><table style="width:100%;font-size:.8rem">'
+                    f'<thead><tr style="text-align:left;color:#94a3b8"><th>Input</th><th>Type</th><th>Provider</th>'
+                    f'<th>Station</th></tr></thead><tbody>{srows_w}</tbody></table></div>', unsafe_allow_html=True)
+        st.caption("Measured = observed by instruments · Predicted = official NOAA tide/current tables or NWS forecast · "
+                   "Model = numerical forecast · Computed = astronomy · Estimated / heuristic = StrikeCast approximation.")
+    with st.expander(f"🐟 {meta_w['name']} feeding profile"):
+        st.markdown(f"**Behavior:** {res.profile.category_label}")
+        for n_ in res.profile.notes:
+            st.markdown(f"- {n_}")
+        st.caption("Weights: " + " · ".join(f"{k} {v * 100:.0f}%" for k, v in res.profile.weights.items())
+                   + ". Edit them in configs/species.yaml (the window block).")
+
+# ====================================================================== MAP
+with tabs[2]:
     c_map, c_side = st.columns([2.6, 1])
     with c_side:
         focus_opts = ["best"] + species
@@ -467,7 +661,7 @@ with tabs[1]:
         st.caption("Tip: switch layers (top-right of the map) to NOAA nautical chart or OpenSeaMap sea marks. Click a spot for its forecast.")
 
 # ================================================================= FORECAST
-with tabs[2]:
+with tabs[3]:
     names = {fc.spot.name: sid for sid, fc in VIS.items()}
     default = ss.get("map_sel", focus_id)
     fsel = names[st.selectbox("Spot", list(names), index=list(names.values()).index(default) if default in names.values() else 0, key="fsel")]
@@ -534,7 +728,7 @@ with tabs[2]:
                      column_config={species_meta(sp)["short"]: st.column_config.ProgressColumn(min_value=0, max_value=100, format="%.0f") for sp in species})
 
 # =============================================================== CONDITIONS
-with tabs[3]:
+with tabs[4]:
     names = {fc.spot.name: sid for sid, fc in VIS.items()}
     csel = names[st.selectbox("Spot", list(names), key="csel",
                               index=list(names.values()).index(focus_id) if focus_id in names.values() else 0)]
@@ -662,7 +856,7 @@ with tabs[3]:
     st.dataframe(pd.DataFrame(tt), hide_index=True, use_container_width=True)
 
 # ================================================================== COMPARE
-with tabs[4]:
+with tabs[5]:
     st.markdown("Compare the environmental conditions of two dates at the same spot — e.g. a great day vs a slow day. "
                 "Observed data (buoys, gauges) are shown separately from model hindcasts.")
     c1, c2, c3, c4 = st.columns([2, 1, 1, 1])
@@ -705,51 +899,68 @@ with tabs[4]:
         st.caption("Environmental differences are shown for context only — they do not prove why a catch was better or worse.")
 
 # ====================================================================== LOG
-with tabs[5]:
+with tabs[6]:
     st.markdown("Log every trip — **including skunks**. Each record captures the environmental snapshot for that hour, "
                 "so StrikeCast can learn what works *for you*.")
     with st.form("log", clear_on_submit=False):
         c1, c2, c3, c4 = st.columns(4)
         lspot = c1.selectbox("Spot", [s.name for s in ALL_SPOTS])
         ldate = c2.date_input("Date", value=today_local, max_value=today_local + timedelta(days=6))
-        ltime = c3.time_input("Start time", value=datetime.now().replace(minute=0, second=0, microsecond=0).time())
-        ldur = c4.number_input("Hours fished", 0.5, 24.0, 2.0, 0.5)
+        _now0 = datetime.now().replace(minute=0, second=0, microsecond=0)
+        ltime = c3.time_input("Start time", value=_now0.time(), step=timedelta(minutes=5))
+        letime = c4.time_input("End time", value=(_now0 + timedelta(hours=2)).time(), step=timedelta(minutes=5),
+                               help="An end time earlier than the start means you fished past midnight.")
         c1, c2, c3, c4 = st.columns(4)
         lsp = c1.selectbox("Target species", SPECIES, format_func=lambda s: species_meta(s)["name"])
-        lcaught = c2.number_input("Fish caught", 0, 500, 0)
-        llen = c3.number_input("Largest (inches)", 0.0, 70.0, 0.0, 0.5)
-        lang = c4.number_input("Anglers", 1, 20, 1)
+        lbites = c2.number_input("Bites / hits", 0, 1000, 0, help="Every take you felt or saw, landed or not.")
+        lcaught = c3.number_input("Fish caught", 0, 500, 0)
+        llen = c4.number_input("Largest (inches)", 0.0, 70.0, 0.0, 0.5)
         c1, c2, c3, c4 = st.columns(4)
-        llure = c1.text_input("Lure / bait used")
+        llure = c1.text_input("Lures / bait used")
         lbait = c2.selectbox("Bait seen", ["none", "adult bunker", "peanut bunker", "sand eels", "bay anchovies", "silversides", "other"])
         lbirds = c3.checkbox("Birds diving")
         lblitz = c4.checkbox("Surface blitz")
-        lnotes = st.text_area("Notes (water color, structure, what worked)", height=70)
+        c1, c2 = st.columns([3, 1])
+        lwater = c1.text_input("Observed conditions (water color, surf, current, wind, bait activity)")
+        lang = c2.number_input("Anglers", 1, 20, 1)
+        lnotes = st.text_area("Notes (structure, what worked)", height=70)
         lconf = st.radio("Record type", ["user_reported", "verified"], horizontal=True)
         submitted = st.form_submit_button("💾 Save trip", type="primary")
     if submitted:
         sid = {s.name: s.id for s in ALL_SPOTS}[lspot]
         when = pd.Timestamp(datetime.combine(ldate, ltime)).tz_localize(TZ).tz_convert("UTC")
-        feats = {}
-        if sid in forecasts and when.floor("h") in forecasts[sid].hourly.index:
-            feats = feature_snapshot(forecasts[sid], when)
-        else:
+        until = pd.Timestamp(datetime.combine(ldate, letime)).tz_localize(TZ).tz_convert("UTC")
+        if until <= when:
+            until += pd.Timedelta(days=1)          # session crossed midnight
+        src_fc = forecasts.get(sid)
+        if src_fc is None or when.floor("h") not in src_fc.hourly.index:
             bar = st.progress(0.0, text="Pulling the environmental snapshot for that date…")
-            hist_fc = run_sync(collect([get_spot(sid)], historical_frame(ldate, TZ), lambda p, l: bar.progress(min(p, 1.0), text=l)))
-            feats = feature_snapshot(hist_fc[sid], when)
+            src_fc = run_sync(collect([get_spot(sid)], historical_frame(ldate, TZ),
+                                      lambda p, l: bar.progress(min(p, 1.0), text=l)))[sid]
             bar.empty()
-        oid = add_observation({"spot_id": sid, "start_utc": when, "duration_h": ldur, "species": lsp,
-                               "fish_caught": int(lcaught), "largest_in": llen or None, "lure": llure or None,
-                               "bait_seen": None if lbait == "none" else lbait, "birds_diving": lbirds, "blitz": lblitz,
-                               "anglers": int(lang), "notes": lnotes or None, "confidence": lconf}, feats)
-        st.success(f"Saved trip #{oid} with {len(feats)} environmental features.")
+        feats = feature_snapshot(src_fc, when)
+        pred = None
+        try:
+            pred = session_prediction(best_90(src_fc, lsp, ldate), when, until)
+        except Exception as exc:  # noqa: BLE001 — the trip is still worth saving
+            st.warning(f"Could not attach the window prediction: {exc}")
+        oid = add_observation({"spot_id": sid, "start_utc": when, "end_utc": until,
+                               "duration_h": (until - when) / pd.Timedelta(hours=1), "species": lsp,
+                               "bites": int(lbites), "fish_caught": int(lcaught), "largest_in": llen or None,
+                               "lure": llure or None, "bait_seen": None if lbait == "none" else lbait,
+                               "birds_diving": lbirds, "blitz": lblitz, "anglers": int(lang),
+                               "water_notes": lwater or None, "notes": lnotes or None, "confidence": lconf}, feats, pred)
+        extra = (f" Your interval scored {pred['fished_score']:.0f}/100" if pred and pred.get("fished_score") is not None else "")
+        st.success(f"Saved trip #{oid} with {len(feats)} environmental features and the window prediction.{extra}")
     obs = list_observations()
     st.markdown(f"##### Your log · {len(obs)} trips")
     if not obs.empty:
         show = obs.copy()
         show["start"] = pd.to_datetime(show["start_utc"], utc=True).dt.tz_convert(TZ).dt.strftime("%Y-%m-%d %I:%M %p")
-        st.dataframe(show[["id", "start", "spot_id", "species", "fish_caught", "largest_in", "lure", "bait_seen", "birds_diving",
-                           "blitz", "confidence", "has_features"]], hide_index=True, use_container_width=True)
+        show["end"] = pd.to_datetime(show["end_utc"], utc=True).dt.tz_convert(TZ).dt.strftime("%I:%M %p")
+        st.dataframe(show[["id", "start", "end", "spot_id", "species", "bites", "fish_caught", "largest_in", "lure",
+                           "bait_seen", "water_notes", "confidence", "has_features", "has_prediction"]],
+                     hide_index=True, use_container_width=True)
         c1, c2 = st.columns([1, 3])
         did = c1.number_input("Delete trip id", min_value=0, value=0)
         if c1.button("Delete") and did:
@@ -765,6 +976,32 @@ with tabs[5]:
             st.success(f"Imported {n} records.")
         except Exception as exc:  # noqa: BLE001
             st.error(str(exc))
+    st.markdown("##### 📏 How well do the 90-minute predictions match your trips?")
+    ev_sp = st.selectbox("Species", ["all"] + SPECIES, key="eval_sp",
+                         format_func=lambda s_: "All species" if s_ == "all" else species_meta(s_)["name"])
+    sess = sessions_with_predictions(None if ev_sp == "all" else ev_sp)
+    ev = evaluate(sess)
+    for m_ in ev["messages"]:
+        st.caption(m_)
+    if ev.get("n_scored"):
+        c1, c2 = st.columns([1.3, 1])
+        bands = pd.DataFrame(ev["bands"]).rename(columns={"band": "Predicted score", "sessions": "Sessions",
+                                                           "action_share": "Trips with bites/fish",
+                                                           "rate_per_h": "Bites per hour"})
+        c1.dataframe(bands, hide_index=True, use_container_width=True,
+                     column_config={"Trips with bites/fish": st.column_config.NumberColumn(format="percent"),
+                                    "Bites per hour": st.column_config.NumberColumn(format="%.2f")})
+        ib, ob = ev["inside_best"], ev["outside_best"]
+        c2.markdown(f"""<div class="sc-card sc-kpi"><div class="lab">Inside the recommended window (≥45 min overlap)</div>
+          <div class="val" style="font-size:1.2rem">{fmt(ib['rate_per_h'], '{:.2f}')} bites/h</div>
+          <div class="note">{ib['sessions']} sessions · outside: {fmt(ob['rate_per_h'], '{:.2f}')} bites/h ({ob['sessions']})</div></div>""",
+                    unsafe_allow_html=True)
+        sig = component_signals(sess)
+        if sig is not None and not sig.empty:
+            st.markdown("Which factors tracked your results (advisory input for re-weighting — never applied automatically):")
+            st.dataframe(sig, hide_index=True, use_container_width=True)
+        else:
+            st.caption("Per-factor calibration signals appear after 20 sessions with saved predictions.")
     st.markdown("##### 🤖 Learn from your log")
     st.caption("Trains a logistic-regression model per species with a chronological train/test split. Needs ≥20 trips "
                "(≥5 with fish, ≥5 without). Probabilities are only calibrated once you have 60+ trips.")
@@ -778,7 +1015,7 @@ with tabs[5]:
         col.caption("✅ model ready" if model_exists(sp) else "no model yet")
 
 # =================================================================== SPECIES
-with tabs[6]:
+with tabs[7]:
     regs = regulations_config()
     st.markdown(f"Regulations below are a convenience summary (last reviewed {regs.get('last_reviewed')}). "
                 f"**Always confirm with [NYSDEC]({regs.get('verify_url')})** and enroll in the free "

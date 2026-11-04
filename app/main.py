@@ -25,7 +25,9 @@ from app.providers.geocode import geocode_name, geocode_zip
 from app.schemas.env import ApiSpotForecast, Spot
 from app.services.compare import compare_dates
 from app.services.forecast import SpotForecast, collect, forecast_frame, get_spot, load_spots
-from app.services.observations import add_observation, list_observations
+from app.services.fishing_window import compare_window, window_for_forecast
+from app.services.observations import add_observation, list_observations, sessions_with_predictions
+from app.services.session_eval import evaluate
 
 log = get_logger("api")
 _scheduler = None
@@ -156,12 +158,58 @@ async def geocode(q: str) -> list[dict[str, Any]]:
         return await geocode_name(http, q)
 
 
+def _pick(p) -> dict[str, Any] | None:
+    return {"start": p.start.isoformat(), "end": p.end.isoformat(), "score": _json_safe(p.score)} if p else None
+
+
+@app.get("/window/{spot_id}")
+async def best_window(spot_id: str, species: str = Query("striped_bass"), day: date | None = None,
+                      compare_start: str | None = Query(None, description="ISO time (local if no offset) of a 90-min comparison window"),
+                      ) -> dict[str, Any]:
+    """Best and second-best 90-minute windows (5-min resolution) for a spot, local date and species."""
+    if species not in species_list():
+        raise HTTPException(400, f"species must be one of {species_list()}")
+    try:
+        spot = get_spot(spot_id)
+    except KeyError as exc:
+        raise HTTPException(404, f"unknown spot {spot_id}") from exc
+    today = pd.Timestamp.now(tz=spot.timezone).date()
+    day = day or today
+    if not (today <= day <= today + pd.Timedelta(days=6)):
+        raise HTTPException(400, "day must be within the 7-day forecast range")
+    fc = (await collect([spot], forecast_frame(7)))[spot.id]
+    n_cal = len(sessions_with_predictions(species))
+    r = window_for_forecast(fc, species, day, calibration_sessions=n_cal)
+    out: dict[str, Any] = {
+        "spot_id": spot.id, "species": species, "date": str(day), "timezone": spot.timezone,
+        "best": _pick(r.best), "second": _pick(r.second), "elapsed": r.elapsed,
+        "behavior": list(r.profile.categories), "current_source": r.current_source,
+        "confidence": {k: v for k, v in r.confidence.items() if k != "parts"},
+        "explanation": {"summary": r.explanation["summary"], "bullets": r.explanation["bullets"]},
+        "factors": [{k: _json_safe(v) for k, v in f.items()} for f in r.explanation["factors"]],
+        "sun": {k: (v.isoformat() if v else None) for k, v in r.sun.items()},
+        "slack_current": [t.isoformat() for t in r.slack],
+        "note": "Suitability is relative environmental favorability, not a probability of catching fish.",
+    }
+    if compare_start:
+        c = compare_window(r, pd.Timestamp(compare_start))
+        out["comparison"] = {**_pick(c["pick"]), "factors": [{k: _json_safe(v) for k, v in f.items()} for f in c["factors"]]}
+    return out
+
+
+@app.get("/sessions/evaluation")
+def session_evaluation(species: str | None = None) -> dict[str, Any]:
+    return _plain(evaluate(sessions_with_predictions(species)))
+
+
 class ObservationIn(BaseModel):
     spot_id: str
     start_utc: str
+    end_utc: str | None = None
     species: str
+    bites: int | None = None
     fish_caught: int = 0
-    duration_h: float = 2.0
+    duration_h: float | None = None   # derived from end_utc when given (default 2 h)
     largest_in: float | None = None
     lure: str | None = None
     bait_seen: str | None = None

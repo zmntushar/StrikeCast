@@ -124,6 +124,31 @@ StrikeCast follows a **transparent, configurable, rule-based** approach (see [`c
 > **These are environmental suitability scores, not calibrated catch probabilities.** Actual catches also depend on
 > lure choice, casting reach, skill and effort. Only models trained and calibrated on your own logged trips report probabilities.
 
+### Best 90-minute window
+
+The **⏱️ Best 90 min** tab answers *when exactly to go* for one species, spot and date:
+
+- Every 90-minute window starting on that date is scored in **5-minute steps**, averaging suitability over the whole
+  interval (not just its midpoint). Windows may cross midnight; for today only windows that haven't started are used.
+- Components, each with its own per-species weight (`window:` block in `configs/species.yaml`): **light** from the
+  continuous **solar elevation** (so seasons are handled automatically — no fixed clock times), **tidal current**,
+  **tide phase & direction**, **habitat/structure**, **season**, **water temperature** and the hourly **wind / surf /
+  pressure / clarity / bait** forecast, times shore **fishability**. Species are tagged diurnal, nocturnal,
+  crepuscular and/or flexible — striped bass hunt low light and darkness, tautog are daylight bottom feeders that need
+  manageable current.
+- **Tide height and current are separate variables.** Current speed, direction and slack times come only from NOAA
+  current-station predictions. Without a station, a clearly labeled tidal-phase flow *index* (no knots) is used and
+  forecast confidence drops.
+- Synchronized solar and tide charts share one time axis; a translucent box spanning both marks the recommended window
+  with its start/end times, score and a plain-English reason. A draggable comparison window and a second-best window
+  can be inspected without moving the recommendation.
+- A separate **forecast confidence** (0–100) reflects current-data availability, tide-station distance, overall data
+  quality, location specificity, forecast lead time and how many of your logged sessions exist to judge the profile.
+
+Log trips in **📓 Fishing Log** (start/end time, bites, catches, lures, observed conditions): each one stores what the
+optimizer predicted, and the log tab compares predicted scores with your results. Skunks are kept as data, not treated
+as proof the forecast was wrong, and species weights are never changed automatically.
+
 ### Data honesty rules
 - All times are UTC internally, shown in the spot's local timezone (DST-safe).
 - Measured, predicted, model, interpolated and heuristic values are labeled everywhere.
@@ -158,7 +183,9 @@ used on any US coast, but the species seasons are tuned for Long Island / the NY
 | `GET /forecast/{spot_id}?days=7` | Hourly features, indices, windows, sources, bathymetry |
 | `GET /rank?species=striped_bass&favorites_only=true` | Spots ranked by today's best Bite Index |
 | `GET /compare?spot_id=…&date_a=2026-10-10&date_b=2026-10-22` | Two-date comparison |
+| `GET /window/{spot_id}?species=blackfish&day=2026-11-05&compare_start=…` | Best & second-best 90-min windows, factors, confidence |
 | `GET/POST /observations` | Fishing log |
+| `GET /sessions/evaluation?species=…` | Logged sessions vs predicted window scores |
 | `GET /geocode?q=11702` | ZIP / place lookup |
 
 ## Project structure

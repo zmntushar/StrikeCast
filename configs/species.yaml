@@ -17,6 +17,13 @@
 # structure: affinity 0-1 for spot structure tags (best match wins, others add).
 # diet: weights over baitfish groups (empty = invertebrate feeder).
 # storm: multipliers before / during / after (12-72 h) storm events.
+# window: 90-minute fishing-window profile (app/models/feeding_profiles.py).
+#   categories: diurnal | nocturnal | crepuscular | flexible (several allowed). Used for labels
+#               and as the default solar curve when solar_curve is omitted.
+#   solar_curve: [[sun_elevation_deg, suitability 0-1], ...] interpolated linearly.
+#   weights: solar / current / tide / habitat / seasonal / temperature / conditions (normalized).
+#   limiting: {component: exponent} — multiplies the score by component**exponent so a poor
+#             value (e.g. darkness for tautog) caps the window even if other factors are good.
 # ---------------------------------------------------------------------------
 
 reference_latitude: 40.7
@@ -45,6 +52,17 @@ species:
     fishability: {max_wind_mph: 30, max_wave_ft: 10}
     presence_weights: {structure: 0.55, bait: 0.45}
     feeding_weights: {current: 0.22, light: 0.24, tide_stage: 0.08, wind: 0.12, waves: 0.1, pressure: 0.08, bait: 0.12, temp_trend: 0.04, clarity: 0.05}
+    window:
+      categories: [crepuscular, nocturnal, flexible]
+      # Solar suitability vs sun elevation (deg): low-light hunter that also feeds at night and in daylight.
+      solar_curve: [[-90, 0.8], [-18, 0.82], [-12, 0.9], [-6, 1.0], [2, 1.0], [8, 0.85], [15, 0.6], [30, 0.45], [90, 0.4]]
+      overcast_bonus: 0.25
+      weights: {solar: 0.24, current: 0.22, tide: 0.10, habitat: 0.08, seasonal: 0.10, temperature: 0.08, conditions: 0.18}
+      limiting: {}
+      notes:
+        - "Often benefit from low light; feed at dawn, dusk, through the night and in daylight when bait is concentrated"
+        - "Ambush on current seams, eddies, jetties and structure — moving water matters"
+        - "Favor conditions that improve prey accessibility (white water, bait pushed in, falling barometer)"
     regulation_key: striped_bass
     tactics:
       night: "Swim slow: bucktails, darters, needlefish, live eels"
@@ -74,6 +92,15 @@ species:
     fishability: {max_wind_mph: 28, max_wave_ft: 9}
     presence_weights: {structure: 0.5, bait: 0.5}
     feeding_weights: {current: 0.24, light: 0.16, tide_stage: 0.06, wind: 0.1, waves: 0.08, pressure: 0.06, bait: 0.26, temp_trend: 0.04, clarity: 0.04}
+    window:
+      categories: [diurnal, crepuscular]
+      solar_curve: [[-90, 0.4], [-18, 0.4], [-12, 0.55], [-6, 0.85], [0, 1.0], [6, 1.0], [15, 0.85], [90, 0.8]]
+      overcast_bonus: 0.05
+      weights: {solar: 0.18, current: 0.22, tide: 0.08, habitat: 0.07, seasonal: 0.12, temperature: 0.10, conditions: 0.23}
+      limiting: {solar: 0.2}
+      notes:
+        - "Sight-feeding daytime predators, most aggressive around sunrise and sunset"
+        - "Follow bait schools; strong current and rips concentrate the bait"
     regulation_key: bluefish
     tactics:
       day: "Poppers, metal (Hopkins, Kastmaster) and wire leaders"
@@ -102,6 +129,15 @@ species:
     fishability: {max_wind_mph: 22, max_wave_ft: 6}
     presence_weights: {structure: 0.6, bait: 0.4}
     feeding_weights: {current: 0.26, light: 0.2, tide_stage: 0.14, wind: 0.12, waves: 0.12, pressure: 0.04, bait: 0.1, temp_trend: 0.02, clarity: 0.08}
+    window:
+      categories: [diurnal]
+      solar_curve: [[-90, 0.08], [-12, 0.1], [-6, 0.3], [0, 0.55], [10, 0.85], [25, 1.0], [90, 1.0]]
+      overcast_bonus: 0.0
+      weights: {solar: 0.22, current: 0.22, tide: 0.16, habitat: 0.10, seasonal: 0.10, temperature: 0.08, conditions: 0.12}
+      limiting: {solar: 0.6}
+      notes:
+        - "Visual ambush feeders on the bottom — best in good daylight and clean water"
+        - "Want a steady drift: moderate current on the incoming tide along channel edges"
     regulation_key: fluke
     tactics:
       day: "Bucktail + Gulp! strip or spearing/squid; work channel edges on the drift"
@@ -131,6 +167,18 @@ species:
     fishability: {max_wind_mph: 22, max_wave_ft: 5}
     presence_weights: {structure: 1.0, bait: 0.0}
     feeding_weights: {current: 0.3, light: 0.25, tide_stage: 0.14, wind: 0.12, waves: 0.15, pressure: 0.04, bait: 0.0, temp_trend: 0.0, clarity: 0.06}
+    window:
+      categories: [diurnal]
+      solar_curve: [[-90, 0.05], [-12, 0.07], [-6, 0.25], [0, 0.5], [10, 0.85], [20, 1.0], [90, 1.0]]
+      overcast_bonus: 0.0
+      # Above this predicted speed (kt, direct station only) bottom presentation gets hard.
+      manageable_current_kt: 1.5
+      weights: {solar: 0.24, current: 0.26, tide: 0.12, habitat: 0.14, seasonal: 0.08, temperature: 0.08, conditions: 0.08}
+      limiting: {solar: 0.7, habitat: 0.3}
+      notes:
+        - "Primarily daylight feeders; nighttime feeding suitability is generally low"
+        - "Pick crabs, mussels and barnacles off rocks, jetties and reefs"
+        - "Need manageable current so a bait can be held tight to the bottom structure"
     regulation_key: blackfish
     tactics:
       day: "Green crabs or Asian crabs on a jig/rig tight to the rocks; fish the slack-tide windows"
@@ -159,6 +207,15 @@ species:
     fishability: {max_wind_mph: 24, max_wave_ft: 6}
     presence_weights: {structure: 1.0, bait: 0.0}
     feeding_weights: {current: 0.26, light: 0.26, tide_stage: 0.1, wind: 0.13, waves: 0.15, pressure: 0.05, bait: 0.0, temp_trend: 0.05, clarity: 0.06}
+    window:
+      categories: [diurnal]
+      solar_curve: [[-90, 0.15], [-12, 0.2], [-6, 0.4], [0, 0.65], [10, 0.9], [20, 1.0], [90, 1.0]]
+      overcast_bonus: 0.0
+      weights: {solar: 0.22, current: 0.22, tide: 0.10, habitat: 0.12, seasonal: 0.10, temperature: 0.10, conditions: 0.14}
+      limiting: {solar: 0.4}
+      notes:
+        - "Schooling daytime bottom feeders around piers, rocks and shell bottom"
+        - "Bite best with light-to-moderate current"
     regulation_key: porgy
     tactics:
       day: "Hi-lo rig with clam strips or squid; small hooks; chum with clam"

@@ -29,7 +29,7 @@ from app.models.feeding import feeding_scores
 from app.models.presence import bait_availability, presence_scores
 from app.models.storms import detect_storms
 from app.providers import geography, lunar, marine, nws_marine, tides, weather
-from app.schemas.env import Alert, DataKind, SourceInfo, Spot, TideEvent, Window
+from app.schemas.env import Alert, CurrentEvent, DataKind, SourceInfo, Spot, TideEvent, Window
 from app.services import my_spots
 from app.services import surf as surf_svc
 from app.services.stations import distance_to, station_meta
@@ -110,6 +110,7 @@ class SpotForecast:
     missing: list[str] = field(default_factory=list)
     surf: dict[str, Any] = field(default_factory=dict)        # surf model context / validation summary
     marine: dict[str, Any] = field(default_factory=dict)      # NWS zone forecast, advisories, surf-zone forecast
+    current_events: list[CurrentEvent] = field(default_factory=list)  # NOAA max/slack predictions (empty = none)
     generated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
     @property
@@ -555,9 +556,11 @@ def assemble(spot: Spot, frame: TimeFrame, raw: dict[str, Any], spot_pos: int,
                                   note=_err(raw, f"tide:{spot.tide_station}")))
 
     # ---- currents ----------------------------------------------------------
+    current_events: list[CurrentEvent] = []
     cr = _ok(raw, f"cur:{spot.current_station}") if spot.current_station else None
     if cr and len(cr[0]) >= 2:
         events, url = cr
+        current_events = list(events)
         df = df.join(current_features(events, idx))
         df["current_is_proxy"] = spot.current_is_proxy
         meta = station_meta(spot.current_station)
@@ -679,7 +682,7 @@ def assemble(spot: Spot, frame: TimeFrame, raw: dict[str, Any], spot_pos: int,
     quality = data_quality(sources, missing, frame.mode)
     return SpotForecast(spot=spot, frame=frame, hourly=df, sources=sources, alerts=alerts, bathy=bathy,
                         tide_events=tide_events, daily=daily, windows=windows, quality=quality, missing=missing,
-                        surf=surf_meta, marine=marine_info)
+                        surf=surf_meta, marine=marine_info, current_events=current_events)
 
 
 def data_quality(sources: list[SourceInfo], missing: list[str], mode: str) -> dict[str, Any]:

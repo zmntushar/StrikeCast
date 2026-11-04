@@ -21,3 +21,14 @@ def test_health_and_static_endpoints():
 
 def test_unknown_spot_404():
     assert client.get("/forecast/nowhere").status_code == 404
+
+
+def test_window_endpoint_validates_input():
+    assert client.get("/window/nowhere").status_code == 404
+    assert client.get("/window/point_lookout_jetties?species=shark").status_code == 400
+    assert client.get("/window/point_lookout_jetties?day=2001-01-01").status_code == 400
+
+
+def test_session_evaluation_endpoint():
+    out = client.get("/sessions/evaluation").json()
+    assert "messages" in out and out["n"] >= 0
