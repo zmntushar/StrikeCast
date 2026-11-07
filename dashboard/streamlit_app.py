@@ -38,13 +38,13 @@ from app.services.stations import build_custom_spot  # noqa: E402
 from dashboard.components import charts  # noqa: E402
 from dashboard.components.window_chart import time_label, window_figure  # noqa: E402
 from dashboard.components.maps import build_map  # noqa: E402
-from dashboard.components.styles import CSS  # noqa: E402
+from dashboard.components.styles import CSS, NO_FADE  # noqa: E402
 from app.models.tackle import recommend  # noqa: E402
 from dashboard.components.ui import (chip, esc, fmt, hint, hour_label, isnum, kind_badge,  # noqa: E402
                                      legend_html, species_popover, window_tag, surf_block, surf_headline, surf_source_text,
                                      tide_text, wave_txt, wind_text, window_text)
 
-st.markdown(CSS, unsafe_allow_html=True)
+st.markdown(CSS + (NO_FADE if st.session_state.pop("quiet_rerun", False) else ""), unsafe_allow_html=True)
 
 SPECIES = species_list()
 ENVS = ["beach", "inlet", "jetty", "river_mouth", "bay", "pier"]
@@ -73,11 +73,12 @@ def fetch_forecasts(spots, force: bool, slot) -> dict:
     return {k: v for k, v in ss["fc"]["data"].items() if k in want}
 
 
-def _collect(spots, slot) -> dict:
+def _collect(spots, slot, compact: bool = False) -> dict:
     with slot.container():
-        st.markdown('<div class="sc-card"><b>Collecting live data</b> <span class="sc-sub">· NOAA tides, currents, buoys, '
-                    'NWS, Open-Meteo, bathymetry (cached locally after the first run)</span></div>', unsafe_allow_html=True)
-        bar = st.progress(0.0, text="Starting…")
+        if not compact:
+            st.markdown('<div class="sc-card"><b>Collecting live data</b> <span class="sc-sub">· NOAA tides, currents, buoys, '
+                        'NWS, Open-Meteo, bathymetry (cached locally after the first run)</span></div>', unsafe_allow_html=True)
+        bar = st.progress(0.0, text="Updating live data…" if compact else "Starting…")
 
         def cb(p: float, label: str) -> None:
             bar.progress(min(max(p, 0.0), 1.0), text=f"{label} · {p * 100:.0f}%")
@@ -211,17 +212,31 @@ with st.sidebar:
     st.caption("Data is cached locally per provider update cycle; refresh pulls anything that has expired.")
 
 
-@st.fragment(run_every="5m")
-def _auto_update() -> None:
-    hit = ss.get("fc")
-    if auto and hit and time.time() - hit["t"] >= CACHE_MIN * 60:
-        st.rerun()
-
-
-_auto_update()
-
 # ================================================================== data
 spots_to_fetch = ALL_SPOTS + ([custom] if custom and custom.id not in BY_ID else [])
+
+
+@st.fragment(run_every="5m")
+def _auto_update() -> None:
+    """When data is due, download it here (a small sidebar progress bar) instead of in a full-page rerun,
+    then redraw the page without fading it. Re-pulling inside a full rerun made the whole page dim and
+    jump every 20 minutes."""
+    hit = ss.get("fc")
+    if not (auto and hit and time.time() - hit["t"] >= CACHE_MIN * 60):
+        return
+    try:
+        data = _collect(spots_to_fetch, st.empty(), compact=True)
+    except Exception as exc:  # noqa: BLE001 — keep showing the old data and retry on the next tick
+        st.caption(f"⚠️ Auto-update failed ({exc}); retrying in 5 minutes.")
+        return
+    ss["fc"] = {"t": time.time(), "at": datetime.now(timezone.utc), "data": data}
+    ss["quiet_rerun"] = True
+    st.rerun()
+
+
+with st.sidebar:
+    _auto_update()
+
 focus_spot = custom or get_spot(focus_id)
 center = (search_center[0], search_center[1]) if search_center else (focus_spot.lat, focus_spot.lon)
 

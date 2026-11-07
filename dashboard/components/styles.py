@@ -1,5 +1,9 @@
 """Global CSS for the dashboard (dark nautical theme)."""
 
+# Added only for the redraw that follows a background auto-update, so the page doesn't fade out
+# while it rebuilds. Reruns the user starts keep Streamlit's fade as "working…" feedback.
+NO_FADE = '<style>[data-stale="true"] { opacity: 1 !important; transition: none !important; }</style>'
+
 CSS = """
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap');

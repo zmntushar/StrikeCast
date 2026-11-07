@@ -10,6 +10,7 @@ ndbc:
 coops:
   # tide prediction stations (S = subordinate: high/low only, R = harmonic)
   "8516225": {name: "Deep Creek Meadow, Jones Beach", lat: 40.6033, lon: -73.525}
+  "8516155": {name: "Green Island, Sloop Channel", lat: 40.6233, lon: -73.5017}
   "8515586": {name: "Northport, Northport Bay", lat: 40.9000, lon: -73.3533}
   "8516385": {name: "Jones Inlet (Point Lookout)", lat: 40.5867, lon: -73.5783}
   "8515228": {name: "Democrat Point, Fire Island Inlet", lat: 40.6333, lon: -73.2933}

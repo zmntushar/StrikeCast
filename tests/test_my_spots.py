@@ -6,7 +6,7 @@ from app.services import my_spots
 from app.services.forecast import get_spot, load_spots
 
 DEFAULTS = ["jones_beach_field_10", "sunken_meadow_field_3", "point_lookout_jetties",
-            "jones_beach_west_end_2", "robert_moses_democrat_point"]
+            "jones_beach_west_end_2", "robert_moses_democrat_point", "jones_beach_green_island"]
 
 
 @pytest.fixture(autouse=True)
@@ -54,7 +54,7 @@ def test_save_searched_place_then_remove():
 
 def test_reorder_saved_spots():
     my_spots.move("robert_moses_democrat_point", -1)
-    assert my_spots.saved_ids()[-2:] == ["robert_moses_democrat_point", "jones_beach_west_end_2"]
+    assert my_spots.saved_ids()[3:5] == ["robert_moses_democrat_point", "jones_beach_west_end_2"]
     my_spots.move("robert_moses_democrat_point", -10)          # clamps at the top
     assert my_spots.saved_ids()[0] == "robert_moses_democrat_point"
     my_spots.move("robert_moses_democrat_point", 1)

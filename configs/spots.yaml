@@ -137,6 +137,27 @@ spots:
     access: Robert Moses Field 2, then walk west (or 4x4 with permit) to the inlet tip.
     notes: West tip of Fire Island at Fire Island Inlet. Strong rips form off the point on both tides.
 
+  - id: jones_beach_green_island
+    name: Jones Beach Green Island
+    short: Green Island
+    favorite: true
+    region: Nassau South Shore
+    lat: 40.61500
+    lon: -73.50130
+    environment: pier
+    water_body: bay
+    facing_deg: 150
+    marine_zone: ANZ345
+    bottom: sand/mud
+    structure: [pier, channel_edge, bay]
+    tide_station: "8516155"
+    current_station: ACT3546
+    current_is_proxy: true
+    temp_sources: ["ndbc:44069", "ndbc:44065", "ndbc:44025"]
+    wave_sources: ["ndbc:44065"]
+    access: Green Island Fishing Access Area, southwest corner of the Wantagh Pkwy bridge over Sloop Channel. NYS Parks permit needed for night fishing; no restrooms.
+    notes: Bay pier on Sloop Channel that runs under the Wantagh Pkwy bridge. Bridge shadow lines and channel current hold bass and blues at night; fluke and porgies along the channel edge.
+
   # ------------------------------ NEARBY SPOTS ---------------------------
   - id: captree
     name: Captree State Park
