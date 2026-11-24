@@ -272,6 +272,36 @@ def surf_block(fc, row) -> str:
             + "</div>")
 
 
+# ------------------------------------------------------------------ blitz
+BLITZ_ICON = {"alert": "🔥", "watch": "👀"}
+
+
+def blitz_when(w, tz: str, with_day: bool = True) -> str:
+    """'Fri 7–9 AM' style label for an hourly blitz window."""
+    return span_text(w.start, w.end, tz, with_day)
+
+
+def blitz_block(fc, start, end, max_items: int = 2) -> str:
+    """Blitz strip for a spot card: the strongest blitz windows between start and end (or a quiet 'no setup' line)."""
+    from app.models.blitz import LEVEL_TEXT, summary_text
+    tz = fc.spot.timezone
+    ws = [w for w in (fc.blitz or []) if start <= w.start < end or start < w.end <= end]
+    if not ws:
+        return ('<div class="sc-blitz none">🐦 Blitz: no setup in this range — the fish, the bait, the wind, '
+                'the tide and the light are not lining up.</div>')
+    top = ws[0]
+    lvl = top.level
+    rest = [w for w in ws[1:max_items + 1]]
+    more = "".join(f' · <span class="bt">{BLITZ_ICON[w.level]} {esc(blitz_when(w, tz))}</span>' for w in rest)
+    sp = species_meta(top.species)["short"] if top.species else ""
+    conf = f'<div class="bc">✔ Confirmed: {esc(top.confirmed)}</div>' if top.confirmed else ""
+    cap = (f'<div class="bs">Held at watch: {esc(top.cap)}.</div>' if top.cap and lvl == "watch" else
+           f'<div class="bs">Weakest link: {esc(", ".join(top.limits[:2]))}.</div>' if lvl == "watch" and top.limits else "")
+    return (f'<div class="sc-blitz {lvl}"><span class="bh">{BLITZ_ICON[lvl]} {LEVEL_TEXT[lvl].upper()}</span> · '
+            f'<span class="bt">{esc(blitz_when(top, tz))}</span> · {esc(sp)} · {top.score:.0f}/100{more}'
+            f'<div class="bs">{esc(summary_text(top))}.</div>{cap}{conf}</div>')
+
+
 def kind_badge(kind: str) -> str:
     k = (kind or "missing").split(" ")[0].replace("+", "")
     k = k if k in ("measured", "predicted", "model", "interpolated", "computed", "heuristic", "missing") else "model"

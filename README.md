@@ -107,8 +107,11 @@ StrikeCast follows a **transparent, configurable, rule-based** approach (see [`c
 3. **Feeding Activity Index (0–100, hourly)** — tidal current strength vs the species' preference (from NOAA current
    predictions — max current is *not* assumed to be at mid-tide), tide stage, light (dawn/dusk/night/day + cloud),
    onshore/offshore wind relative to *that* beach's orientation, surf (weighted by how exposed the spot is),
-   a water-clarity proxy, 3-hour pressure trend, bait and temperature trend.
-   Storm/nor'easter phases (pre / during / post) apply configurable effects; storms are not assumed to always hurt fishing.
+   a water-clarity proxy, 3- and 24-hour pressure trend (the rise behind a cold front is penalized), bait and
+   temperature trend. Wind, surf, pressure, clarity (and light for bass/blues) are also **limiting factors**: below a
+   knee they pull the score down instead of being averaged away (`feeding_limiting` in `configs/species.yaml`).
+   Storm/nor'easter phases (pre / during / post) apply configurable effects; storms are not assumed to always hurt
+   fishing, but the pre-storm boost stops once the blow has started.
 4. **Fishability** — practical shore-angler limits: wind, gusts, surf on jetties, inlet waves, lightning, heavy rain, fog.
    (A separate **surf safety** label — OK / Caution / Dangerous — is shown on each card and is *not* part of the score.)
 5. **Bite Index** = presence^0.6 × feeding^0.4 × fishability (rescaled).
@@ -124,6 +127,30 @@ StrikeCast follows a **transparent, configurable, rule-based** approach (see [`c
 > **These are environmental suitability scores, not calibrated catch probabilities.** Actual catches also depend on
 > lure choice, casting reach, skill and effort. Only models trained and calibrated on your own logged trips report probabilities.
 
+### 🔥 Blitz alerts
+
+A **blitz** — bass or blues driving bait to the surface within casting range, usually under diving birds — needs
+everything at once, so StrikeCast scores it separately from the Bite Index and deliberately strictly
+(weighted *geometric* mean: one weak factor pulls it down):
+
+| Factor | Importance | From |
+|---|---|---|
+| Bait near shore | very high | fall exodus of juvenile bunker / spearing / anchovies from the bays, **measured** as the Great South Bay buoy cooling below the ocean buoys, plus bait calendar and spot type |
+| Migrating fish | very high | migration calendar for the spot, nudged up while the water cools |
+| Water temperature | high | fall bass ~50–60 °F, blues ~60–72 °F (measured) |
+| Wind & surf | high | light-moderate wind and gusts, no strong offshore wind, surf under ~3–4 ft, no storm |
+| Moving water | high | current strength; the ebb at inlets, jetties and river mouths |
+| Light | moderate | first light → ~1.5 h after sunrise, last ~1.5 h of daylight |
+| Barometer | moderate | steady or slowly falling; not post-front, not a deepening storm |
+
+**🔥 Blitz alert** = score ≥ 90, every factor above its floor, measured inputs and ≤ 3 days lead.
+**👀 Blitz watch** = close, one factor marginal or unverified. Alerts show on the spot cards, as a banner on the
+Today tab, as red/amber bands with stars on the 7-Day Forecast chart, as a row in the species × hour heatmap and as a
+band on the Best 90 min chart. A *Birds diving* / *Surface blitz* entry in the Fishing Log confirms it for 36 h.
+Replayed over Oct 20 – Nov 22, 2026, alerts fired on 7–8 of 34 days at the inlet spots, all in weeks whose fishing
+reports described blitzes, and none on storm or post-front days — details, limits and how to re-run the check in
+[docs/BLITZ_MODEL.md](docs/BLITZ_MODEL.md).
+
 ### Best 90-minute window
 
 The **⏱️ Best 90 min** tab answers *when exactly to go* for one species, spot and date:
@@ -133,7 +160,8 @@ The **⏱️ Best 90 min** tab answers *when exactly to go* for one species, spo
 - Components, each with its own per-species weight (`window:` block in `configs/species.yaml`): **light** from the
   continuous **solar elevation** (so seasons are handled automatically — no fixed clock times), **tidal current**,
   **tide phase & direction**, **habitat/structure**, **season**, **water temperature** and the hourly **wind / surf /
-  pressure / clarity / bait** forecast, times shore **fishability**. Species are tagged diurnal, nocturnal,
+  pressure / clarity / bait** forecast, times shore **fishability**. Season and water temperature also act as a
+  **ceiling** (× √(season × temperature)), so a species that has left for the year cannot score "Hot". Species are tagged diurnal, nocturnal,
   crepuscular and/or flexible — striped bass hunt low light and darkness, tautog are daylight bottom feeders that need
   manageable current.
 - **Tide height and current are separate variables.** Current speed, direction and slack times come only from NOAA
@@ -188,6 +216,7 @@ used on any US coast, but the species seasons are tuned for Long Island / the NY
 | `GET /rank?species=striped_bass&favorites_only=true` | Spots ranked by today's best Bite Index |
 | `GET /compare?spot_id=…&date_a=2026-10-10&date_b=2026-10-22` | Two-date comparison |
 | `GET /window/{spot_id}?species=blackfish&day=2026-11-05&compare_start=…` | Best & second-best 90-min windows, factors, confidence |
+| `GET /blitz?favorites_only=true&days=3` | Blitz alerts / watches, strongest first, with reasons |
 | `GET/POST /observations` | Fishing log |
 | `GET /sessions/evaluation?species=…` | Logged sessions vs predicted window scores |
 | `GET /geocode?q=11702` | ZIP / place lookup |

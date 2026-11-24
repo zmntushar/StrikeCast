@@ -17,6 +17,11 @@ from app.schemas.env import Spot
 FACTORS = ["current", "tide_stage", "light", "wind", "waves", "pressure", "bait", "temp_trend", "clarity"]
 # Surf drives feeding at open beaches (white water, dislodged prey); bay or Sound chop much less so.
 WAVE_WEIGHT_BY_EXPOSURE = {"open_ocean": 1.0, "sound": 0.6, "sheltered_bay": 0.3}
+# A current borrowed from a station elsewhere (labeled proxy) counts for less than a direct prediction.
+PROXY_CURRENT_WEIGHT = 0.6
+# Limiting factors (species.yaml ``feeding_limiting`` overrides): {factor: exponent}, applied below LIMIT_KNEE.
+LIMIT_KNEE = 0.55
+DEFAULT_LIMITING = {"wind": 0.6, "waves": 0.6, "pressure": 0.6, "clarity": 0.4}
 
 
 def current_factor(cn: np.ndarray, lo: float, hi: float, slack: float) -> np.ndarray:
@@ -57,17 +62,27 @@ def wind_factor(onshore: np.ndarray, opt: list[float], water_body: str) -> np.nd
     lo, hi = opt
     on = np.asarray(onshore, dtype=float)
     calm_val = 0.75
-    out = np.where(on < lo, calm_val - 0.2 * np.clip((-on - 8) / 12, 0, 1),
+    # A strong offshore wind blows bait (and the fish on it) out of casting range: 0.75 at 6 mph
+    # offshore down to 0.35 at 20+ mph (it used to bottom out at 0.55, too mild to matter).
+    out = np.where(on < lo, calm_val - 0.4 * np.clip((-on - 6) / 14, 0, 1),
                    np.where(on <= hi, 1.0, 1 - 0.7 * np.clip((on - hi) / 15, 0, 1)))
     if lo <= 0:  # species that like it calm: light winds from any direction are best
         out = np.where(on <= hi, 1.0 - 0.15 * np.clip((-on - 10) / 15, 0, 1), out)
     return np.where(np.isnan(on), np.nan, out)
 
 
-def pressure_factor(t3: np.ndarray, falling_bonus: float, rising_penalty: float) -> np.ndarray:
+def pressure_factor(t3: np.ndarray, falling_bonus: float, rising_penalty: float,
+                    t24: np.ndarray | None = None) -> np.ndarray:
+    """Falling barometer helps, rising hurts. The 24-hour change catches what the 3-hour one misses: the
+    slow, steady fall ahead of a front (good) and the big rise behind a cold front (the classic post-frontal
+    bluebird day, when the bite shuts down even though the 3-hour change looks flat)."""
     t3 = np.asarray(t3, dtype=float)
-    out = np.where(t3 <= -0.6, 0.55 + np.clip(-t3 / 2.5, 0, 1) * falling_bonus * 1.8,
-                   np.where(t3 >= 1.0, 0.55 - np.clip(t3 / 3, 0, 1) * rising_penalty * 2, 0.55))
+    t24 = np.full(len(t3), np.nan) if t24 is None else np.asarray(t24, dtype=float)
+    fall_3h = np.where(t3 <= -0.6, np.clip(-t3 / 2.5, 0, 1), 0.0) * falling_bonus * 1.8
+    fall_24h = np.clip((-np.nan_to_num(t24) - 1) / 5, 0, 1) * falling_bonus * 0.8
+    rise_3h = np.where(t3 >= 1.0, np.clip(t3 / 3, 0, 1), 0.0)
+    post_front = np.clip((np.nan_to_num(t24) - 4) / 8, 0, 1)
+    out = 0.55 + np.maximum(fall_3h, fall_24h) - np.maximum(rise_3h, post_front) * rising_penalty * 2
     return np.where(np.isnan(t3), np.nan, np.clip(out, 0, 1))
 
 
@@ -92,6 +107,7 @@ def feeding_scores(df: pd.DataFrame, spot: Spot, species: str, bait_av: np.ndarr
     tags = df.get("tide_stage_tag", pd.Series(None, index=df.index)).to_numpy()
     prefs = cfg.get("preferred_tide", {}).get(spot.environment, ["incoming", "outgoing"])
     wl = cfg["waves_ft"]
+    proxy_current = bool(df["current_is_proxy"].fillna(True).astype(bool).any()) if "current_is_proxy" in df         else bool(spot.current_is_proxy)
 
     f = {
         "current": current_factor(col(df, "current_norm"), *cfg["current_opt"], cfg["slack_score"]),
@@ -101,7 +117,7 @@ def feeding_scores(df: pd.DataFrame, spot: Spot, species: str, bait_av: np.ndarr
         "waves": ramp_band(col(df, "nearshore_wave_ft"), 0.65 if wl[1] > 0 else 1.0, max(wl[1], 1e-6),
                            wl[2], wl[3], 0.12),
         "pressure": pressure_factor(col(df, "pressure_tend_3h"), cfg["pressure"]["falling_bonus"],
-                                    cfg["pressure"]["rising_penalty"]),
+                                    cfg["pressure"]["rising_penalty"], col(df, "pressure_tend_24h")),
         "bait": bait_av if bait_av is not None else np.full(len(df), np.nan),
         "temp_trend": temp_trend_factor(col(df, "water_temp_trend_3d"), doy),
         "clarity": clarity_factor(col(df, "clarity_index"), cfg.get("clarity_opt", [0.0, 0.6])),
@@ -113,6 +129,8 @@ def feeding_scores(df: pd.DataFrame, spot: Spot, species: str, bait_av: np.ndarr
         wt = w.get(name, 0)
         if name == "waves":
             wt *= WAVE_WEIGHT_BY_EXPOSURE.get(spot.exposure_class, 1.0)
+        if name == "current" and proxy_current:
+            wt *= PROXY_CURRENT_WEIGHT     # another location's current: timing/strength only roughly right here
         if wt <= 0:
             continue
         val = f[name]
@@ -120,8 +138,20 @@ def feeding_scores(df: pd.DataFrame, spot: Spot, species: str, bait_av: np.ndarr
         num += np.where(ok, wt * val, 0)
         den += np.where(ok, wt, 0)
     base = np.where(den > 0, num / np.maximum(den, 1e-9), 0.5)
-    storm = storm_multiplier(df.get("storm_phase", pd.Series("none", index=df.index)).to_numpy(),
-                             col(df, "hours_since_storm"), cfg.get("storm", {}))
+    # Limiting factors: in a weighted MEAN one bad factor (a 20 mph offshore blow, 6 ft of dirty surf,
+    # a post-frontal high) barely dents the score, so every day looked "Very good". A factor below the
+    # knee now also multiplies the score down; values at or above the knee change nothing.
+    for name, ex in cfg.get("feeding_limiting", DEFAULT_LIMITING).items():
+        v = f.get(name)
+        if v is None or ex <= 0:
+            continue
+        base = np.where(np.isnan(v), base, base * np.clip(np.nan_to_num(v) / LIMIT_KNEE, 0.2, 1) ** ex)
+    phase_arr = df.get("storm_phase", pd.Series("none", index=df.index)).astype(str).to_numpy()
+    storm = storm_multiplier(phase_arr, col(df, "hours_since_storm"), cfg.get("storm", {}))
+    # The pre-storm feeding boost only applies while it is still fishable — not once the blow has started
+    # (gales and big surf ahead of the storm flag used to get the bonus).
+    rough = (np.nan_to_num(col(df, "wind_mph")) >= 18) | (np.nan_to_num(col(df, "nearshore_wave_ft")) >= wl[2])
+    storm = np.where((phase_arr == "pre") & rough, np.minimum(storm, 1.0), storm)
     # Convex stretch: only hours where most factors line up score near the top.
     feeding = np.clip(100 * np.clip(base, 0, 1) ** 1.4 * storm, 0, 100)
     out = {f"feeding_{species}": feeding, f"ff_{species}_storm": storm}

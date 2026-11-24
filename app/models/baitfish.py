@@ -31,6 +31,12 @@ def bait_scores(df: pd.DataFrame, spot: Spot) -> pd.DataFrame:
     tide_dir = df.get("tide_dir", pd.Series(None, index=df.index)).to_numpy()
     phase = df.get("storm_phase", pd.Series("none", index=df.index)).to_numpy()
     hsince = col(df, "hours_since_storm")
+    # Measured fall exodus from the bays (app/models/blitz.py::bait_flush): the bay-spawned groups
+    # (outgoing-tide bait: peanut bunker, anchovies, spearing) pile up along ocean beaches and inlets
+    # when it is strong, and are thin there when it has not started. NaN (no gauges / not fall) = no change.
+    flush = col(df, "bait_flush")
+    flush_mult = np.where(np.isnan(flush), 1.0, 0.75 + 0.35 * np.nan_to_num(flush)) if spot.water_body == "ocean" \
+        else np.ones(len(df))
 
     out = {}
     for g, b in cfg.items():
@@ -51,6 +57,8 @@ def bait_scores(df: pd.DataFrame, spot: Spot) -> pd.DataFrame:
         storm = storm_multiplier(phase, hsince, BAIT_STORM)
         local = 0.45 * habitat + 0.2 * wind + 0.2 * tide + 0.15 * seas
         idx = 100 * np.sqrt(season * temp) * (0.35 + 0.65 * local) * storm
+        if pref == "outgoing":
+            idx = idx * flush_mult
         out[f"bait_{g}"] = np.clip(idx, 0, 100)
         out[f"bf_{g}_season"] = season
         out[f"bf_{g}_temp"] = temp

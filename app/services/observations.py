@@ -121,5 +121,40 @@ def sessions_with_predictions(species: str | None = None) -> list[dict[str, Any]
     return [{**{k: getattr(r, k) for k in ["id"] + FIELDS}, "prediction": json.loads(r.prediction_json)} for r in rows]
 
 
+def recent_sightings(lat: float, lon: float, now: Any, radius_km: float = 25.0,
+                     max_age_h: float = 36.0) -> list[dict[str, Any]]:
+    """Logged 'birds diving' / 'surface blitz' reports near a point in the last ``max_age_h`` hours.
+
+    Used by the blitz model as a real-time confirmation (birds are the best blitz sign and have no free feed).
+    """
+    from app.core.geo import haversine_km
+    from app.services.forecast import get_spot
+
+    now_ts = pd.Timestamp(now)
+    now_ts = now_ts.tz_localize("UTC") if now_ts.tzinfo is None else now_ts.tz_convert("UTC")
+    since = (now_ts - pd.Timedelta(hours=max_age_h)).to_pydatetime()
+    with session() as db:
+        rows = db.execute(select(Observation).where(Observation.start_utc >= since)
+                          .where((Observation.birds_diving.is_(True)) | (Observation.blitz.is_(True)))).scalars().all()
+    out = []
+    for r in rows:
+        la, lo = r.lat, r.lon
+        if la is None or lo is None:
+            try:
+                sp = get_spot(r.spot_id)
+                la, lo = sp.lat, sp.lon
+            except KeyError:
+                continue
+        d = haversine_km(lat, lon, la, lo)
+        if d > radius_km:
+            continue
+        t = pd.Timestamp(r.start_utc)
+        t = t.tz_localize("UTC") if t.tzinfo is None else t
+        what = "surface blitz" if r.blitz else "birds diving"
+        out.append({"time": t, "distance_km": round(d, 1), "spot_id": r.spot_id,
+                    "label": f"{what} logged {d:.0f} km away, {(now_ts - t) / pd.Timedelta(hours=1):.0f} h ago (your Fishing Log)"})
+    return out
+
+
 def now_utc() -> datetime:
     return datetime.now(timezone.utc)

@@ -28,7 +28,11 @@ log = get_logger("http")
 HOST_MIN_INTERVAL = {
     "nominatim.openstreetmap.org": 1.1,
     "overpass-api.de": 2.0,
+    # NOAA CO-OPS answers request bursts with 403 Forbidden; spacing requests avoids losing tides/currents.
+    "api.tidesandcurrents.noaa.gov": 0.12,
 }
+# Hosts whose 403 means "slow down" (temporary throttling), so it is retried with backoff like a 429.
+THROTTLE_403_HOSTS = {"api.tidesandcurrents.noaa.gov"}
 
 
 class FetchError(RuntimeError):
@@ -152,7 +156,8 @@ class HttpClient:
                 await self._throttle(host)
                 async with self._sem:
                     resp = await self._client.request(method, url, params=params, data=data, headers=headers)
-                if resp.status_code == 429 or resp.status_code >= 500:
+                throttled = resp.status_code == 429 or (resp.status_code == 403 and host in THROTTLE_403_HOSTS)
+                if throttled or resp.status_code >= 500:
                     retry_after = resp.headers.get("Retry-After")
                     raise httpx.HTTPStatusError(
                         f"HTTP {resp.status_code}" + (f" retry-after={retry_after}" if retry_after else ""),
@@ -166,10 +171,13 @@ class HttpClient:
             except (httpx.HTTPStatusError, httpx.TransportError, json.JSONDecodeError) as exc:
                 last_err = exc
                 status = getattr(getattr(exc, "response", None), "status_code", None)
-                if status is not None and 400 <= status < 500 and status != 429:
+                retryable = status == 429 or (status == 403 and host in THROTTLE_403_HOSTS)
+                if status is not None and 400 <= status < 500 and not retryable:
                     break  # client error: retrying will not help
                 if attempt < s.http_max_retries:
                     delay = min(8.0, 0.8 * 2 ** attempt) + random.uniform(0, 0.4)
+                    if status == 403:
+                        delay = max(delay, 2.0 * (attempt + 1))
                     ra = getattr(getattr(exc, "response", None), "headers", {}).get("Retry-After") if status == 429 else None
                     if ra and str(ra).isdigit():
                         delay = max(delay, min(30.0, float(ra)))

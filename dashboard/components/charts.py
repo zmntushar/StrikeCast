@@ -43,8 +43,46 @@ def _nights(fig: go.Figure, daily: list[dict], tz: str, x0, x1) -> None:
             fig.add_vrect(x0=x0, x1=first_rise, fillcolor=NIGHT, line_width=0, layer="below", row="all", col=1)
 
 
+BLITZ_COLOR = {"alert": ("239,68,68", "#f87171", "🔥 Blitz alert"), "watch": ("245,158,11", "#fbbf24", "👀 Blitz watch")}
+
+
+def add_blitz(fig: go.Figure, fc, d: pd.DataFrame, row: int | None = 1) -> None:
+    """Blitz windows as shaded bands with a label, plus star markers on the hours that qualify."""
+    tz = fc.spot.timezone
+    if d.empty or "blitz_level" not in d:
+        return
+    x0, x1 = d.index.min(), d.index.max() + pd.Timedelta(hours=1)
+    for w in fc.blitz or []:
+        if w.end <= x0 or w.start >= x1:
+            continue
+        rgb, line, label = BLITZ_COLOR[w.level]
+        a = pd.Timestamp(w.start).tz_convert(tz).tz_localize(None)
+        b = pd.Timestamp(w.end).tz_convert(tz).tz_localize(None)
+        kw = dict(row=row, col=1) if row else {}
+        fig.add_vrect(x0=a, x1=b, fillcolor=f"rgba({rgb},{0.20 if w.level == 'alert' else 0.12})",
+                      line=dict(color=line, width=1.5 if w.level == "alert" else 1, dash=None if w.level == "alert" else "dot"),
+                      layer="below", **kw)
+        if row == 1:
+            fig.add_annotation(x=a + (b - a) / 2, y=99, xref="x", yref="y", text=label.split(" ")[0], showarrow=False,
+                               font=dict(size=14), yanchor="top", hovertext=f"{label} · {w.score:.0f}/100", row=1, col=1)
+    lv = d["blitz_level"].fillna("").astype(str)
+    x = d.index.tz_convert(tz).tz_localize(None)
+    for level in ("alert", "watch"):
+        m = (lv == level).to_numpy()
+        if not m.any():
+            continue
+        rgb, line, label = BLITZ_COLOR[level]
+        fig.add_trace(go.Scatter(x=x[m], y=d["blitz_score"].to_numpy()[m], mode="markers", name=label,
+                                 marker=dict(symbol="star", size=12 if level == "alert" else 9, color=line,
+                                             line=dict(color="#0b1220", width=1)),
+                                 customdata=d["blitz_species"].fillna("").to_numpy()[m],
+                                 hovertemplate=f"{label}: %{{y:.0f}}/100 · %{{customdata}}<extra></extra>"),
+                      row=row or 1, col=1)
+
+
 def forecast_timeline(fc, species: list[str], d: pd.DataFrame, bands: list | None = None) -> go.Figure:
-    """``bands`` = [(start, end[, rank]), ...] highlighted on the Bite Index panel (best = cyan, 2nd = violet)."""
+    """``bands`` = [(start, end[, rank]), ...] highlighted on the Bite Index panel (best = cyan, 2nd = violet).
+    Blitz alerts / watches are drawn as red / amber bands with stars at the qualifying hours."""
     tz = fc.spot.timezone
     x = d.index.tz_convert(tz).tz_localize(None)
     fig = make_subplots(rows=4, cols=1, shared_xaxes=True, vertical_spacing=0.045,
@@ -67,6 +105,7 @@ def forecast_timeline(fc, species: list[str], d: pd.DataFrame, bands: list | Non
                           row=1, col=1)
     fig.add_hline(y=80, line=dict(color="rgba(239,68,68,.35)", dash="dot"), row=1, col=1)
     fig.add_hline(y=65, line=dict(color="rgba(249,115,22,.30)", dash="dot"), row=1, col=1)
+    add_blitz(fig, fc, d, row=1)
 
     fig.add_trace(go.Scatter(x=x, y=d["tide_ft"], name="Tide", fill="tozeroy", line=dict(color="#38bdf8", width=2),
                              fillcolor="rgba(56,189,248,0.18)", hovertemplate="%{y:.1f} ft"), row=2, col=1)
@@ -101,7 +140,8 @@ def forecast_timeline(fc, species: list[str], d: pd.DataFrame, bands: list | Non
     fig.update_yaxes(range=[0, 100], row=1, col=1)
     fig.update_yaxes(showgrid=False, row=2, col=1, secondary_y=True)
     fig.update_yaxes(showgrid=False, row=4, col=1, secondary_y=True)
-    fig.update_annotations(font=dict(size=12, color="#94a3b8"), x=0, xanchor="left")
+    # panel titles only (paper coordinates) — the blitz labels sit on the time axis
+    fig.update_annotations(selector=dict(xref="paper"), font=dict(size=12, color="#94a3b8"), x=0, xanchor="left")
     fig.update_layout(bargap=0)
     fig.update_yaxes(tickformat=".1f", row=4, col=1, secondary_y=True)
     _style(fig, 880)
@@ -116,8 +156,17 @@ def species_heatmap(fc, species: list[str], d: pd.DataFrame) -> go.Figure:
     fig = go.Figure(go.Heatmap(x=x, y=y, z=z, zmin=0, zmax=100, colorscale=BITE_SCALE, xgap=1, ygap=3,
                                colorbar=dict(title="Bite", thickness=10, len=0.9),
                                hovertemplate="%{y} · %{x|%a %I %p}: <b>%{z:.0f}</b><extra></extra>"))
-    _style(fig, 90 + 42 * len(species))
+    if "blitz_level" in d:
+        # Blitz row: only hours that reach watch (amber) or alert (red); everything else stays blank.
+        lv = d["blitz_level"].fillna("").astype(str).map({"alert": 2.0, "watch": 1.0, "": np.nan}).to_numpy()
+        txt = d["blitz_score"].round().astype("Int64").astype(str).to_numpy()
+        fig.add_trace(go.Heatmap(x=x, y=["🔥 Blitz"], z=[lv], zmin=0, zmax=2, showscale=False, xgap=1, ygap=3,
+                                 colorscale=[[0, "#334155"], [0.5, "#f59e0b"], [1.0, "#ef4444"]], customdata=[txt],
+                                 hovertemplate="Blitz · %{x|%a %I %p}: <b>%{customdata}/100</b><extra></extra>"))
+        y = ["🔥 Blitz"] + y
+    _style(fig, 90 + 42 * len(y))
     fig.update_layout(hovermode="closest")
+    fig.update_yaxes(categoryorder="array", categoryarray=list(reversed(y)))
     return fig
 
 

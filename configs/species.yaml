@@ -52,19 +52,27 @@ species:
     fishability: {max_wind_mph: 30, max_wave_ft: 10}
     presence_weights: {structure: 0.55, bait: 0.45}
     feeding_weights: {current: 0.22, light: 0.24, tide_stage: 0.08, wind: 0.12, waves: 0.1, pressure: 0.08, bait: 0.12, temp_trend: 0.04, clarity: 0.05}
+    # factors that pull the score down when poor (below 0.55), whatever the other factors say
+    feeding_limiting: {wind: 0.6, waves: 0.6, pressure: 0.6, clarity: 0.4, light: 0.35}
     window:
       categories: [crepuscular, nocturnal, flexible]
       # Solar suitability vs sun elevation (deg): low-light hunter that also feeds at night and in daylight.
       solar_curve: [[-90, 0.8], [-18, 0.82], [-12, 0.9], [-6, 1.0], [2, 1.0], [8, 0.85], [15, 0.6], [30, 0.45], [90, 0.4]]
       overcast_bonus: 0.25
       weights: {solar: 0.24, current: 0.22, tide: 0.10, habitat: 0.08, seasonal: 0.10, temperature: 0.08, conditions: 0.18}
-      limiting: {}
+      # poor weather (post-front high, strong offshore wind, big dirty surf) caps the window, not just nudges it
+      limiting: {conditions: 0.4}
       notes:
         - "Often benefit from low light; feed at dawn, dusk, through the night and in daylight when bait is concentrated"
         - "Ambush on current seams, eddies, jetties and structure — moving water matters"
         - "Favor conditions that improve prey accessibility (white water, bait pushed in, falling barometer)"
+    blitz:
+      temp_f: [45, 50, 60, 66]        # surface-feeding band of the fall run at the spot (best ~50-58 F; spring is similar)
+      season_min: 0.55                # migration calendar below this = no blitz at all
+      bait: [peanut_bunker, adult_bunker, silverside, sand_eel, bay_anchovy]
     regulation_key: striped_bass
     tactics:
+      blitz: "Blitz: small poppers, glides, 1-2 oz tins or a 5-8 in soft plastic matched to the bait; cast to the edge of the busting fish, not the middle of the bait"
       night: "Swim slow: bucktails, darters, needlefish, live eels"
       low_light: "Swimming plugs (SP minnows), pencil poppers, bucktails with pork/soft trailer"
       day: "Tins and teasers when sand eels are around; bucktails in the rips"
@@ -92,17 +100,23 @@ species:
     fishability: {max_wind_mph: 28, max_wave_ft: 9}
     presence_weights: {structure: 0.5, bait: 0.5}
     feeding_weights: {current: 0.24, light: 0.16, tide_stage: 0.06, wind: 0.1, waves: 0.08, pressure: 0.06, bait: 0.26, temp_trend: 0.04, clarity: 0.04}
+    feeding_limiting: {wind: 0.6, waves: 0.6, pressure: 0.5, clarity: 0.4, light: 0.3}
     window:
       categories: [diurnal, crepuscular]
       solar_curve: [[-90, 0.4], [-18, 0.4], [-12, 0.55], [-6, 0.85], [0, 1.0], [6, 1.0], [15, 0.85], [90, 0.8]]
       overcast_bonus: 0.05
       weights: {solar: 0.18, current: 0.22, tide: 0.08, habitat: 0.07, seasonal: 0.12, temperature: 0.10, conditions: 0.23}
-      limiting: {solar: 0.2}
+      limiting: {solar: 0.2, conditions: 0.4}
       notes:
         - "Sight-feeding daytime predators, most aggressive around sunrise and sunset"
         - "Follow bait schools; strong current and rips concentrate the bait"
+    blitz:
+      temp_f: [56, 60, 72, 78]
+      season_min: 0.55
+      bait: [peanut_bunker, bay_anchovy, adult_bunker, silverside]
     regulation_key: bluefish
     tactics:
+      blitz: "Blitz: metal (Hopkins, Kastmaster) or a popper on a short wire or heavy mono leader; single hooks make unhooking safer"
       day: "Poppers, metal (Hopkins, Kastmaster) and wire leaders"
       low_light: "Pencil poppers and swimmers; birds working = blues on top"
       night: "Cut bunker on the bottom"
@@ -264,6 +278,27 @@ baitfish:
     environment: {inlet: 0.9, bay: 1.0, pier: 0.9, river_mouth: 0.95, beach: 0.7, jetty: 0.75}
     wind_push: 0.5
     tide_pref: outgoing
+
+# Surface-blitz model (app/models/blitz.py, docs/BLITZ_MODEL.md). Deliberately strict: a blitz
+# needs migrating fish, the right water temperature, dense bait near shore, bait held within casting
+# range, moving water, low light and a settled barometer AT THE SAME TIME. The score is a weighted
+# GEOMETRIC mean, so one weak factor pulls it down; alerts also require every factor above a floor.
+blitz:
+  species: [striped_bass, bluefish]
+  # importance (bait / migrating fish very high; temperature, wind, tide high; time of day moderate)
+  weights: {migration: 0.16, temperature: 0.12, bait: 0.22, access: 0.18, tide: 0.12, light: 0.10, front: 0.10}
+  alert:
+    score: 90                    # all factors strong, not just above their floors
+    min: {migration: 0.8, temperature: 0.7, bait: 0.7, access: 0.85, tide: 0.85, light: 0.9, front: 0.8}
+  watch:
+    score: 82
+    min: {migration: 0.7, temperature: 0.6, bait: 0.6, access: 0.7, tide: 0.6, light: 0.65, front: 0.65}
+  # Where shore blitzes happen: ocean beaches near inlets, inlet mouths and jetties; far less in the bays.
+  environment: {inlet: 1.0, jetty: 1.0, beach: 0.95, river_mouth: 0.9, pier: 0.68, bay: 0.6}
+  water_body: {ocean: 1.0, sound: 0.88, bay: 0.78}
+  max_alert_lead_hours: 72       # beyond this the wind forecast is too uncertain for an alert (watch only)
+  sighting_radius_km: 25         # Fishing Log "birds diving" / "surface blitz" reports used as confirmation
+  sighting_max_age_hours: 36
 
 # Storm detection thresholds (configurable — effects above are per species).
 storm:

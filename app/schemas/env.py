@@ -167,3 +167,4 @@ class ApiSpotForecast(BaseModel):
     bathymetry: dict[str, Any] | None = None
     surf: dict[str, Any] | None = None       # exposure class, buoy anchoring, geometry summary, latest buoy
     marine: dict[str, Any] | None = None     # NWS zone forecast headlines / advisories / surf-zone forecast
+    blitz: list[dict[str, Any]] = Field(default_factory=list)   # blitz alert / watch periods, strongest first

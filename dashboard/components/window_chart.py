@@ -76,7 +76,28 @@ def _legend_box(fig: go.Figure, name: str, color: str, symbol: str) -> None:
                   row=1, col=1)
 
 
-def window_figure(result, compare: WindowPick | None = None, show_second: bool = True, height: int = 640) -> go.Figure:
+BLITZ = {"alert": ("rgba(239,68,68,0.16)", "#f87171", "🔥 Blitz alert"), "watch": ("rgba(245,158,11,0.10)", "#fbbf24", "👀 Blitz watch")}
+
+
+def _blitz_shapes(fig: go.Figure, blitz: list, tz: str, x0, x1) -> None:
+    """Blitz alert / watch periods as bands across both panels, labeled inside the top panel."""
+    for w in blitz:
+        a, b = max(_x(w.start, tz), x0), min(_x(w.end, tz), x1)
+        if a >= b:
+            continue
+        fill, line, label = BLITZ[w.level]
+        fig.add_shape(type="rect", xref="x", yref="paper", x0=a, x1=b, y0=0, y1=1, fillcolor=fill, layer="below",
+                      line=dict(color=line, width=1.2, dash="dot"), name=f"blitz_{w.level}")
+        fig.add_annotation(x=a + (b - a) / 2, y=0.995, xref="x", yref="paper", yanchor="top", showarrow=False,
+                           text=f"<b>{label.split(' ')[0]} {w.score:.0f}</b>", font=dict(color=line, size=11),
+                           bgcolor="rgba(2,6,23,0.7)", name=f"blitz_{w.level}_label")
+    for lvl in ("alert", "watch"):
+        if any(w.level == lvl for w in blitz):
+            _legend_box(fig, BLITZ[lvl][2], BLITZ[lvl][1], "square")
+
+
+def window_figure(result, compare: WindowPick | None = None, show_second: bool = True, height: int = 640,
+                  blitz: list | None = None) -> go.Figure:
     tz = result.tz
     f = result.frame
     x = _x(f.index, tz)
@@ -157,6 +178,8 @@ def window_figure(result, compare: WindowPick | None = None, show_second: bool =
         fig.update_yaxes(title_text="flow index (est.)", range=[0, 1.05], showgrid=False, row=2, col=1, secondary_y=True)
 
     # ---------------- windows spanning both panels
+    if blitz:
+        _blitz_shapes(fig, blitz, tz, x[0], x[-1])
     if result.best is not None:
         _legend_box(fig, "Best 90-min window", BEST, "square")
     if result.second is not None and show_second:

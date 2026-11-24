@@ -28,6 +28,10 @@ CATEGORY_SOLAR = {
 }
 DEFAULT_WEIGHTS = {"solar": 0.22, "current": 0.22, "tide": 0.1, "habitat": 0.1, "seasonal": 0.1,
                    "temperature": 0.1, "conditions": 0.16}
+# Fish that are not there cannot bite: the migration calendar and water temperature set a CEILING on the
+# window score (score x sqrt(season x temperature), like the Bite Index's habitat term). As plain weighted
+# components (10% each) they let an out-of-season species score "Hot" — e.g. porgy at 87 in late November.
+PRESENCE_LIMITING = {"seasonal": 0.5, "temperature": 0.5}
 
 
 @dataclass(frozen=True)
@@ -44,6 +48,8 @@ class FeedingProfile:
     manageable_current_kt: float | None
     preferred_tide: dict[str, list[str]]   # by spot environment
     condition_weights: dict[str, float]    # weights over the hourly environmental factors
+    # limiting exponents for those factors (below the knee they pull the conditions component down)
+    condition_limiting: dict[str, float] = field(default_factory=dict)
     notes: tuple[str, ...] = field(default_factory=tuple)
     # Second window: must start/end at least this many hours away from the best one ...
     second_gap_h: float = 4.0
@@ -87,15 +93,23 @@ def load_profile(species: str) -> FeedingProfile:
         solar_curve=tuple((a, b) for a, b in curve),
         overcast_bonus=float(win.get("overcast_bonus", meta.get("overcast_day_bonus", 0.0))),
         weights=_normalize(win.get("weights") or DEFAULT_WEIGHTS),
-        limiting={k: float(v) for k, v in (win.get("limiting") or {}).items() if k in COMPONENTS and v > 0},
+        limiting={k: float(v) for k, v in {**PRESENCE_LIMITING, **(win.get("limiting") or {})}.items()
+                  if k in COMPONENTS and float(v) > 0},
         current_opt=tuple(meta.get("current_opt", [0.3, 0.9])),  # type: ignore[arg-type]
         slack_score=float(meta.get("slack_score", 0.4)),
         manageable_current_kt=win.get("manageable_current_kt"),
         preferred_tide=meta.get("preferred_tide", {}),
         condition_weights=cond,
+        condition_limiting=_condition_limiting(meta, cond),
         notes=tuple(win.get("notes", [])),
         **_second_rule(cats, win.get("second_window") or {}),
     )
+
+
+def _condition_limiting(meta: dict, cond: dict[str, float]) -> dict[str, float]:
+    from app.models.feeding import DEFAULT_LIMITING
+    lim = meta.get("feeding_limiting", DEFAULT_LIMITING) or {}
+    return {k: float(v) for k, v in lim.items() if k in cond and float(v) > 0}
 
 
 def _second_rule(cats: tuple[str, ...], cfg: dict) -> dict:

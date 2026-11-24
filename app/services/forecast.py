@@ -29,6 +29,7 @@ from app.features.tide_features import current_features, current_proxy_from_tide
 from app.features import surf as surf_phys
 from app.features.weather_features import clarity_index, pressure_tendency, weather_flags, wind_features
 from app.models import bite as bite_mod
+from app.models import blitz as blitz_mod
 from app.models.baitfish import bait_scores
 from app.models.common import species_list
 from app.models.feeding import feeding_scores
@@ -117,6 +118,7 @@ class SpotForecast:
     surf: dict[str, Any] = field(default_factory=dict)        # surf model context / validation summary
     marine: dict[str, Any] = field(default_factory=dict)      # NWS zone forecast, advisories, surf-zone forecast
     current_events: list[CurrentEvent] = field(default_factory=list)  # NOAA max/slack predictions (empty = none)
+    blitz: list = field(default_factory=list)                 # BlitzWindow list for the display range, strongest first
     generated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
     @property
@@ -250,7 +252,7 @@ async def _fetch_all(http: HttpClient, spots: list[Spot], frame: TimeFrame, prog
         meta = station_meta(st)
         tasks.append((f"cur:{st}", f"NOAA current predictions · {meta.get('name', st)}",
                       tides.current_events(http, st, d_begin, d_end, int(meta.get("bin", 1) or 1))))
-    obs_sources = sorted({src for s in spots for src in (s.temp_sources + s.wave_sources)})
+    obs_sources = sorted({src for s in spots for src in (s.temp_sources + s.wave_sources)} | _flush_sources(spots))
     for src in obs_sources:
         kind, sid = src.split(":", 1)
         name = station_meta(src).get("name", sid)
@@ -291,6 +293,19 @@ async def _fetch_all(http: HttpClient, spots: list[Spot], frame: TimeFrame, prog
     return raw
 
 
+def _flush_refs(water_body: str) -> dict[str, Any] | None:
+    return stations_config().get("bait_flush_reference", {}).get(water_body)
+
+
+def _flush_sources(spots: list[Spot]) -> set[str]:
+    out: set[str] = set()
+    for s in spots:
+        r = _flush_refs(s.water_body)
+        if r:
+            out |= {r["bay"], *r.get("ocean", [])}
+    return out
+
+
 # --------------------------------------------------------------- assemble
 def _ok(raw: dict, key: str) -> Any | None:
     v = raw.get(key)
@@ -306,6 +321,42 @@ def _floatify(df: pd.DataFrame) -> pd.DataFrame:
     """Cast integer columns (e.g. API degree values) to float so measured values can be merged."""
     ints = [c for c in df.columns if pd.api.types.is_integer_dtype(df[c]) and not pd.api.types.is_bool_dtype(df[c])]
     return df.astype({c: "float64" for c in ints}) if ints else df
+
+
+def _station_temp(raw: dict, src: str, idx: pd.DatetimeIndex) -> pd.Series | None:
+    """Measured hourly water temperature of one gauge on ``idx`` (None when unavailable)."""
+    obs = _ok(raw, src)
+    if obs is None or "water_temp_f" not in obs[0]:
+        return None
+    s = obs[0]["water_temp_f"].dropna()
+    if s.empty:
+        return None
+    h = s.resample("1h").mean().reindex(idx).interpolate(limit=6, limit_area="inside")
+    return h if h.notna().sum() >= 6 else None
+
+
+def flush_reference(spot: Spot, raw: dict, idx: pd.DatetimeIndex) -> tuple[pd.DataFrame, dict[str, Any] | None]:
+    """Bay and ocean reference water temperature for the fall bait exodus (measured gauges only).
+
+    Forecast hours carry the last measurement forward for up to 4 days (persistence); nothing is invented
+    beyond that. Returns the hourly frame and a short description of the gauges used (None = no pair)."""
+    out = pd.DataFrame({"bay_ref_temp_f": np.nan, "ocean_ref_temp_f": np.nan, "bay_ref_trend_3d": np.nan}, index=idx)
+    refs = _flush_refs(spot.water_body)
+    if not refs:
+        return out, None
+    bay = _station_temp(raw, refs["bay"], idx)
+    ocean, ocean_src = None, None
+    for src in refs.get("ocean", []):
+        ocean = _station_temp(raw, src, idx)
+        if ocean is not None:
+            ocean_src = src
+            break
+    if bay is None or ocean is None:
+        return out, None
+    out["bay_ref_trend_3d"] = (bay - bay.shift(72)).ffill(limit=96)
+    out["bay_ref_temp_f"] = bay.ffill(limit=96)
+    out["ocean_ref_temp_f"] = ocean.ffill(limit=96)
+    return out, {"bay": refs["bay"], "ocean": ocean_src}
 
 
 def _hourly(obs: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
@@ -495,10 +546,13 @@ def assemble(spot: Spot, frame: TimeFrame, raw: dict[str, Any], spot_pos: int,
 
     # ---- water temperature (measured anchor + model trend) ---------------
     picked_temp = None
-    for src in spot.temp_sources:
+    for i_src, src in enumerate(spot.temp_sources):
         obs = _ok(raw, src)
         if obs is None:
             continue
+        wb = station_meta(src).get("water_body")
+        if i_src > 0 and wb in ("bay", "sound") and wb != spot.water_body:
+            continue          # never stand in a bay / Sound gauge for a different water body (model SST instead)
         odf, url = obs
         if "water_temp_f" not in odf or odf["water_temp_f"].dropna().empty:
             continue
@@ -543,6 +597,24 @@ def assemble(spot: Spot, frame: TimeFrame, raw: dict[str, Any], spot_pos: int,
         df["water_temp_kind"] = "missing"
         missing.append("water temperature")
     df["water_temp_trend_3d"] = df["water_temp_f"] - df["water_temp_f"].shift(72)
+
+    # ---- fall bait exodus from the bays (bay vs ocean gauges) -------------
+    refs, ref_used = flush_reference(spot, raw, idx)
+    df = df.join(refs)
+    doy = idx.tz_convert(spot.timezone).day_of_year.to_numpy()
+    own_measured = df["water_temp_kind"].astype(str).str.startswith("measured").to_numpy()
+    flush, flush_measured = blitz_mod.bait_flush(
+        doy, df["bay_ref_temp_f"].to_numpy(), df["ocean_ref_temp_f"].to_numpy(), df["bay_ref_trend_3d"].to_numpy(),
+        np.where(own_measured, df["water_temp_f"].to_numpy(dtype=float), np.nan), df["water_temp_trend_3d"].to_numpy())
+    df["bait_flush"] = flush
+    df["bait_flush_measured"] = flush_measured
+    if ref_used:
+        b, o = station_meta(ref_used["bay"]), station_meta(ref_used["ocean"])
+        sources.append(SourceInfo(
+            feature="bait flush (bay vs ocean water temp)", provider="NOAA NDBC", kind=DataKind.measured,
+            station_id=f"{b['id']} / {o['id']}", station_name=f"{b.get('name')} vs {o.get('name')}",
+            note="Fall exodus of juvenile bait from the bays when they cool below the ocean (blitz model). "
+                 "Forecast hours carry the latest measurements forward."))
 
     # ---- tides --------------------------------------------------------------
     tide_events: list[TideEvent] = []
@@ -685,10 +757,30 @@ def assemble(spot: Spot, frame: TimeFrame, raw: dict[str, Any], spot_pos: int,
     df["bite_best"] = df[[f"bite_{sp}" for sp in species]].max(axis=1)
     df["bite_best_species"] = df[[f"bite_{sp}" for sp in species]].idxmax(axis=1).str.replace("bite_", "", regex=False)
 
+    # ---- surface-blitz potential (strict; see app/models/blitz.py) ------------------
+    bl = blitz_mod.blitz_scores(df, spot, now=now, mode=frame.mode)
+    if frame.mode == "forecast":
+        bl = blitz_mod.apply_sightings(bl, _recent_sightings(spot, now),
+                                       float(blitz_mod.blitz_config().get("sighting_max_age_hours", 36)))
+    df = df.join(bl)
+    blitz = blitz_mod.blitz_windows(df, spot, frame.display_start, frame.display_end)
+
     quality = data_quality(sources, missing, frame.mode)
     return SpotForecast(spot=spot, frame=frame, hourly=df, sources=sources, alerts=alerts, bathy=bathy,
                         tide_events=tide_events, daily=daily, windows=windows, quality=quality, missing=missing,
-                        surf=surf_meta, marine=marine_info, current_events=current_events)
+                        surf=surf_meta, marine=marine_info, current_events=current_events, blitz=blitz)
+
+
+def _recent_sightings(spot: Spot, now: pd.Timestamp) -> list[dict[str, Any]]:
+    """Fishing-log reports of diving birds / surface blitzes near this spot (confirmation for the blitz model)."""
+    cfg = blitz_mod.blitz_config()
+    try:
+        from app.services.observations import recent_sightings
+        return recent_sightings(spot.lat, spot.lon, now, radius_km=float(cfg.get("sighting_radius_km", 25)),
+                                max_age_h=float(cfg.get("sighting_max_age_hours", 36)))
+    except Exception as exc:  # noqa: BLE001 — the log is optional; never break the forecast
+        log_kv(log, logging.WARNING, "sightings unavailable", error=str(exc)[:160])
+        return []
 
 
 def data_quality(sources: list[SourceInfo], missing: list[str], mode: str) -> dict[str, Any]:

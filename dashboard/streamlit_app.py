@@ -40,9 +40,10 @@ from dashboard.components.window_chart import time_label, window_figure  # noqa:
 from dashboard.components.maps import build_map  # noqa: E402
 from dashboard.components.styles import CSS, NO_FADE  # noqa: E402
 from app.models.tackle import recommend  # noqa: E402
-from dashboard.components.ui import (chip, esc, fmt, hint, hour_label, isnum, kind_badge,  # noqa: E402
-                                     legend_html, species_popover, window_tag, surf_block, surf_headline, surf_source_text,
-                                     tide_text, wave_txt, wind_text, window_text)
+from dashboard.components.ui import (BLITZ_ICON, blitz_block, blitz_when, chip, esc, fmt, hint,  # noqa: E402
+                                     hour_label, isnum, kind_badge, legend_html, species_popover, window_tag, surf_block,
+                                     surf_headline, surf_source_text, tide_text, wave_txt, wind_text, window_text)
+from app.models.blitz import COMPONENTS as BZ_COMPONENTS, LABELS as BZ_LABELS, LEVEL_RANK, LEVEL_TEXT  # noqa: E402
 
 st.markdown(CSS + (NO_FADE if st.session_state.pop("quiet_rerun", False) else ""), unsafe_allow_html=True)
 
@@ -415,6 +416,7 @@ def spot_card(fc) -> str:
       </div>
       <div class="sc-chips">{chips}</div>
       <div class="sc-sub">Bite Index now · peak in selected window · hover a fish for details &amp; tackle</div>
+      {blitz_block(fc, start_ts, end_ts)}
       <div class="sc-cond">
         <div><span>Water</span> {fmt(row.get('water_temp_f'), '{:.1f}')}°F</div>
         <div><span>Wind</span> {esc(wind_text(row))}</div>
@@ -425,10 +427,58 @@ def spot_card(fc) -> str:
 
 
 CONF_COLOR = {"High": "#22c55e", "Medium": "#f59e0b", "Low": "#ef4444"}
+BLITZ_HELP = """A **blitz** is striped bass or bluefish driving bait to the surface within casting range, usually under diving
+birds. StrikeCast flags one only when **all** of these line up — the score is a weighted *geometric* mean, so one weak
+factor pulls it down.
+
+| Factor | Importance | What it uses |
+|---|---|---|
+| Bait near shore | very high | fall exodus of peanut bunker, spearing and anchovies from the bays — measured as the bay buoy (NDBC 44069) cooling below the ocean buoy (44065 / 44025) — plus the bait calendar and spot type (inlets, jetties, ocean beaches) |
+| Migrating fish | very high | species migration calendar for the spot, nudged up while the water is cooling |
+| Water temperature | high | fall bass ~50–60 °F, blues ~60–72 °F at the spot (measured) |
+| Wind & surf | high | light-to-moderate wind and gusts, no strong offshore wind (it pushes bait out of range), surf under ~3–4 ft, clean-enough water, no storm |
+| Moving water | high | current strength; at inlets, jetties and river mouths the **ebb** flushes bait out to the fish |
+| Light | moderate | first light to ~1.5 h after sunrise, and the last ~1.5 h of daylight into dusk |
+| Barometer | moderate | steady or slowly falling; not the bluebird day after a cold front, not a deepening storm |
+
+**🔥 Alert** = score ≥ 90 **and** every factor above its own floor, with a measured water temperature, measured bay/ocean
+gauges, tide predictions and no more than 3 days of lead time. **👀 Watch** = the setup is close but one factor is
+marginal or unverified. A *Birds diving* / *Surface blitz* entry in the 📓 Fishing Log within 25 km confirms the bait and
+fish and lifts nearby watches to alerts for 36 h. Thresholds live in `configs/species.yaml` (`blitz:`).
+
+Replayed over Oct 20 – Nov 22, 2026 at the Jones Inlet and Fire Island Inlet spots, alerts fired on 7–8 of 34 days
+(Nov 1–3, Nov 11, Nov 17–22), all in weeks whose fishing reports described blitzes, with the highest score of the
+period on Friday Nov 20 — and never on the storm, nor'easter or post-front north-wind days. It is a setup indicator, not a guarantee:
+fish can blitz out of casting range, or not at all. See docs/BLITZ_MODEL.md."""
 
 
 # ==================================================================== TODAY
+def blitz_list(fcs: dict, t0, t1) -> list:
+    """[(fc, BlitzWindow), ...] in [t0, t1) across spots, strongest first."""
+    out = [(fc, w) for fc in fcs.values() for w in (fc.blitz or []) if t0 <= w.start < t1 or t0 < w.end <= t1]
+    return sorted(out, key=lambda x: (LEVEL_RANK[x[1].level], x[1].score), reverse=True)
+
+
 with tabs[0]:
+    bz_all = blitz_list(VIS, start_ts, end_ts)
+    if bz_all:
+        lvl = bz_all[0][1].level
+        top = [x for x in bz_all if x[1].level == lvl]
+        seen, items = set(), []
+        for fc_, w_ in top:
+            if fc_.spot.id in seen:
+                continue
+            seen.add(fc_.spot.id)
+            items.append(f"<b>{esc(fc_.spot.name)}</b> {esc(blitz_when(w_, fc_.spot.timezone))} "
+                         f"({esc(species_meta(w_.species)['short'].lower())}, {w_.score:.0f})")
+        fc0, w0 = top[0]
+        why = "; ".join(w0.reasons[:3])
+        conf = f" ✔ {esc(w0.confirmed)}." if w0.confirmed else ""
+        head = ("Blitz alert — everything lines up" if lvl == "alert" else "Blitz watch — the setup is close; one factor is marginal")
+        st.markdown(f'<div class="sc-blitz-banner {lvl}">{BLITZ_ICON[lvl]} <b class="t">{head}</b> · {" · ".join(items[:4])}'
+                    + (f" · +{len(items) - 4} more" if len(items) > 4 else "")
+                    + f'<div class="bs">{esc(fc0.spot.short)}: {esc(why)}.{conf} Birds working are the final confirmation — '
+                      'look for them. Details in 📈 7-Day Forecast.</div></div>', unsafe_allow_html=True)
     bb = best_bet(VIS, species, min(hours, 24))
     if bb:
         fc, sp, hres, hp = bb
@@ -612,12 +662,14 @@ with tabs[1]:
                            format="hh:mm A", key="win_cmp_start")
         cmp = compare_window(res, pd.Timestamp(cstart).tz_localize(tzw, ambiguous=True, nonexistent="shift_forward"))
 
-    st.plotly_chart(window_figure(res, compare=cmp["pick"] if cmp else None, show_second=cmp is None),
+    day_bz = [w_ for w_ in (wfc.blitz or []) if w_.end > res.frame.index[0] and w_.start < res.frame.index[-1]]
+    st.plotly_chart(window_figure(res, compare=cmp["pick"] if cmp else None, show_second=cmp is None, blitz=day_bz),
                     use_container_width=True,
                     config={"displayModeBar": False, "scrollZoom": False})
     st.caption("Both panels share one time axis — hover anywhere to read sun, tide and current at that moment. "
                "Shading: night · twilight · daylight (top); flood = green, ebb = pink (bottom). "
-               "Cyan box = recommended window; " + ("orange = your comparison." if cmp else "dotted = second best."))
+               "Cyan box = recommended window; " + ("orange = your comparison." if cmp else "dotted = second best.")
+               + (" Red / amber band = blitz alert / watch." if day_bz else ""))
     if cmp:
         cp = cmp["pick"]
         diff = (cp.score - res.best.score) if res.best and np.isfinite(cp.score) else np.nan
@@ -761,6 +813,32 @@ with tabs[3]:
                    f"best (cyan) and second-best (violet) 90-minute windows for {species_meta(species[0])['short']}.")
         st.plotly_chart(charts.forecast_timeline(fc, species, d, bands=[(p_.start, p_.end, p_.rank) for _, p_ in windows(fc, species[0])]),
                         use_container_width=True, config={"displayModeBar": False})
+        bz_here = [w_ for w_ in (fc.blitz or []) if start_ts <= w_.start < end_ts]
+        st.caption("🔥 red band + stars = Blitz alert (every factor lines up) · 👀 amber = Blitz watch (setup close, one factor "
+                   "marginal or unverified). Blitz potential is separate from the Bite Index: it looks for surface feeding "
+                   "within casting range, not just fish that will bite.")
+        n_al = len([w_ for w_ in bz_here if w_.level == "alert"])
+        n_wa = len([w_ for w_ in bz_here if w_.level == "watch"])
+        with st.expander(f"🔥 Blitz potential · {n_al} alert(s), {n_wa} watch(es) in this range", expanded=bool(bz_here)):
+            if not bz_here:
+                st.markdown("No blitz setup at this spot in the selected range. A blitz needs migrating fish, the right water "
+                            "temperature, bait pushed near shore, light wind and surf, moving water, low light and a settled "
+                            "barometer **at the same time**.")
+            for w_ in bz_here[:6]:
+                rw = fc.hourly.loc[w_.peak]
+                st.markdown(f"**{BLITZ_ICON[w_.level]} {LEVEL_TEXT[w_.level]} · {blitz_when(w_, fc.spot.timezone)} · "
+                            f"{species_meta(w_.species)['name']} · {w_.score:.0f}/100**  \n" + " · ".join(w_.reasons)
+                            + (f"  \n_Held at watch: {w_.cap}._" if w_.cap else "")
+                            + (f"  \n_Weakest link: {', '.join(w_.limits[:3])}._" if w_.limits and not w_.cap else "")
+                            + (f"  \n✔ {w_.confirmed}" if w_.confirmed else ""))
+                st.dataframe(pd.DataFrame([{"Factor": BZ_LABELS[c_], "Score": float(rw.get(f"bz_{c_}", np.nan)) * 100}
+                                           for c_ in BZ_COMPONENTS]),
+                             hide_index=True, use_container_width=True,
+                             column_config={"Score": st.column_config.ProgressColumn(min_value=0, max_value=100, format="%.0f")})
+            st.caption("Blitz potential is a strict setup indicator built from measured and forecast data (bay vs ocean buoys "
+                       "for the bait push, NOAA tides/currents, NWS/Open-Meteo wind, the surf model). Birds — the best real-time "
+                       "sign — have no free data feed: log 'Birds diving' or 'Surface blitz' in the 📓 Fishing Log and nearby "
+                       "watches upgrade to alerts for the next 36 h.")
         st.markdown("##### Species × hour")
         st.plotly_chart(charts.species_heatmap(fc, species, d), use_container_width=True, config={"displayModeBar": False})
 
@@ -1099,6 +1177,8 @@ with tabs[7]:
     st.plotly_chart(charts.season_chart(focus_spot, SPECIES, pd.Timestamp.now(tz=TZ).day_of_year), use_container_width=True,
                     config={"displayModeBar": False})
     st.caption(f"Seasonal migration curves adjusted for {focus_spot.name} (latitude & water body). Dotted line = today.")
+    with st.expander("🔥 How blitz alerts work"):
+        st.markdown(BLITZ_HELP)
     cols = st.columns(len(SPECIES))
     for col, sp in zip(cols, SPECIES):
         meta = species_meta(sp)

@@ -66,7 +66,14 @@ def to_api(fc: SpotForecast, hourly_cols: list[str] | None = None) -> ApiSpotFor
                            windows=[w for ws in fc.windows.values() for w in ws], alerts=fc.alerts,
                            sources=fc.sources, hourly=hourly,
                            bathymetry=fc.bathy.to_dict() if fc.bathy else None,
-                           surf=_plain({**fc.surf, "latest_buoy": fc.latest_buoy()}), marine=_plain(fc.marine))
+                           surf=_plain({**fc.surf, "latest_buoy": fc.latest_buoy()}), marine=_plain(fc.marine),
+                           blitz=[blitz_dict(w) for w in fc.blitz])
+
+
+def blitz_dict(w) -> dict[str, Any]:
+    return {"level": w.level, "label": w.label, "start": w.start.isoformat(), "end": w.end.isoformat(),
+            "peak": w.peak.isoformat(), "score": w.score, "species": w.species, "reasons": w.reasons,
+            "limits": w.limits, "held_at_watch_because": w.cap or None, "confirmed_by": w.confirmed or None}
 
 
 async def refresh_favorites() -> None:
@@ -140,6 +147,15 @@ async def rank(species: str = Query("striped_bass"), favorites_only: bool = Fals
                     "best_today": _json_safe(fc.best_today(species)),
                     "next_window": w[0].model_dump() if w else None, "quality": fc.quality})
     return sorted(out, key=lambda r: r["best_today"] or 0, reverse=True)
+
+
+@app.get("/blitz")
+async def blitz(favorites_only: bool = True, days: int = Query(3, ge=1, le=7)) -> list[dict[str, Any]]:
+    """Blitz alerts / watches for the next ``days`` days, strongest first (see docs/BLITZ_MODEL.md)."""
+    sp = [s for s in load_spots() if s.favorite or not favorites_only]
+    res = await collect(sp, forecast_frame(days))
+    out = [{"spot_id": fc.spot.id, "name": fc.spot.name, **blitz_dict(w)} for fc in res.values() for w in fc.blitz]
+    return sorted(out, key=lambda r: ({"alert": 2, "watch": 1}.get(r["level"], 0), r["score"]), reverse=True)
 
 
 @app.get("/compare")

@@ -125,6 +125,22 @@ div[data-testid="stProgress"] > div > div > div > div { background: linear-gradi
 .sc-window { margin-top:.55rem; padding:.45rem .6rem; border-radius:10px; background: rgba(2,6,23,.5);
   border:1px dashed rgba(34,211,238,.35); font-size:.8rem; color:#e2e8f0; }
 .sc-badge { display:inline-block; padding:.12rem .45rem; border-radius:6px; font-size:.7rem; font-weight:700; }
+/* blitz potential: red-orange = alert, amber = watch, grey = no setup */
+.sc-blitz { margin-top:.55rem; padding:.45rem .6rem; border-radius:10px; font-size:.8rem; color:#fde7d6; position:relative; }
+.sc-blitz.alert { background: linear-gradient(110deg, rgba(220,38,38,.32), rgba(234,88,12,.22));
+  border:1px solid rgba(248,113,113,.75); box-shadow: 0 0 0 1px rgba(248,113,113,.15), 0 6px 18px rgba(220,38,38,.18); }
+.sc-blitz.watch { background: rgba(120,53,15,.32); border:1px solid rgba(251,191,36,.55); color:#fef3c7; }
+.sc-blitz.none { background: rgba(2,6,23,.35); border:1px dashed rgba(148,163,184,.25); color:#94a3b8; font-size:.74rem; }
+.sc-blitz .bh { font-weight:800; letter-spacing:.02em; }
+.sc-blitz.alert .bh { color:#fecaca; } .sc-blitz.watch .bh { color:#fde68a; }
+.sc-blitz .bt { font-family:'Space Grotesk'; font-weight:700; color:#f8fafc; }
+.sc-blitz .bs { font-size:.72rem; opacity:.85; margin-top:.15rem; line-height:1.35; }
+.sc-blitz .bc { font-size:.7rem; color:#86efac; margin-top:.15rem; }
+.sc-blitz-banner { padding:.7rem 1rem; border-radius:14px; margin:.2rem 0 .8rem; color:#fff1f2;
+  background: linear-gradient(110deg, rgba(185,28,28,.55), rgba(194,65,12,.38)); border:1px solid rgba(248,113,113,.75); }
+.sc-blitz-banner.watch { background: rgba(120,53,15,.42); border-color: rgba(251,191,36,.6); color:#fef3c7; }
+.sc-blitz-banner b.t { font-family:'Space Grotesk'; font-size:1.05rem; }
+.sc-blitz-banner .bs { font-size:.8rem; opacity:.9; margin-top:.2rem; }
 .sc-alert { padding:.6rem .9rem; border-radius:12px; border:1px solid rgba(245,158,11,.45);
   background: rgba(120,53,15,.35); color:#fde68a; font-size:.86rem; margin-bottom:.6rem; }
 .sc-kind { font-size:.68rem; padding:.08rem .4rem; border-radius:5px; font-weight:700; text-transform:uppercase; }

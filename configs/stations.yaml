@@ -1,11 +1,13 @@
 # Observation / prediction stations used by StrikeCast.
 # Coordinates come from NOAA CO-OPS metadata API and NDBC activestations.xml.
 # kind: offshore_buoy | nearshore_buoy | bay_buoy | shore_station
+# water_body (temperature stations): a bay or Sound gauge is never substituted for a spot on a
+# different water body (e.g. the Great South Bay buoy for a Sound beach) — model SST is used instead.
 
 ndbc:
-  "44025": {name: "Long Island (30 nm S of Islip)", lat: 40.251, lon: -73.164, kind: offshore_buoy}
-  "44065": {name: "New York Harbor Entrance", lat: 40.368, lon: -73.701, kind: offshore_buoy}
-  "44069": {name: "Great South Bay (Stony Brook Univ.)", lat: 40.699, lon: -73.087, kind: bay_buoy}
+  "44025": {name: "Long Island (30 nm S of Islip)", lat: 40.251, lon: -73.164, kind: offshore_buoy, water_body: ocean}
+  "44065": {name: "New York Harbor Entrance", lat: 40.368, lon: -73.701, kind: offshore_buoy, water_body: ocean}
+  "44069": {name: "Great South Bay (Stony Brook Univ.)", lat: 40.699, lon: -73.087, kind: bay_buoy, water_body: bay}
 
 coops:
   # tide prediction stations (S = subordinate: high/low only, R = harmonic)
@@ -23,7 +25,7 @@ coops:
   "8510560": {name: "Montauk, Fort Pond Bay", lat: 41.0483, lon: -71.9594}
   "8511671": {name: "Orient", lat: 41.1367, lon: -72.3067}
   # observation stations (water temperature / water level)
-  "8516945": {name: "Kings Point (water temp + level)", lat: 40.8103, lon: -73.7649}
+  "8516945": {name: "Kings Point (water temp + level)", lat: 40.8103, lon: -73.7649, water_body: sound}
   "8531680": {name: "Sandy Hook, NJ (water level)", lat: 40.4669, lon: -74.0094}
 
 currents:
@@ -43,3 +45,11 @@ water_level_reference:
   ocean: "8531680"
   bay: "8531680"
   sound: "8516945"
+
+# Fall bait exodus ("bait flush") reference for the blitz model (app/models/blitz.py): juvenile
+# bunker, spearing and anchovies leave the bays through the inlets as the BAYS cool below the
+# ocean. Measured bay vs ocean water temperature, per spot water body. Sound spots have no
+# bay/ocean pair and use their own measured cooling trend instead.
+bait_flush_reference:
+  ocean: {bay: "ndbc:44069", ocean: ["ndbc:44065", "ndbc:44025"]}
+  bay: {bay: "ndbc:44069", ocean: ["ndbc:44065", "ndbc:44025"]}

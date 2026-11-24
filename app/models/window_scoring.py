@@ -23,7 +23,7 @@ import pandas as pd
 from app.features import current_model
 from app.features.solar import solar_elevation
 from app.features.tide_features import tide_features
-from app.models.feeding import WAVE_WEIGHT_BY_EXPOSURE, current_factor, tide_stage_factor
+from app.models.feeding import LIMIT_KNEE, WAVE_WEIGHT_BY_EXPOSURE, current_factor, tide_stage_factor
 from app.models.feeding_profiles import COMPONENTS, FeedingProfile, solar_suitability
 from app.schemas.env import CurrentEvent, TideEvent
 
@@ -42,7 +42,9 @@ def hourly_to_grid(s: pd.Series | None, grid: pd.DatetimeIndex, carry_samples: i
 
 
 def conditions_hourly(hourly: pd.DataFrame, species: str, profile: FeedingProfile, exposure_class: str) -> pd.Series | None:
-    """Weighted mean of the hourly environmental feeding factors (wind, waves, pressure, bait, clarity...)."""
+    """Weighted mean of the hourly environmental feeding factors (wind, waves, pressure, bait, clarity...),
+    pulled down by the species' limiting factors when one of them is poor (same rule as the Feeding index),
+    so a post-frontal high or a strong offshore blow is not averaged away by the good factors."""
     num = pd.Series(0.0, index=hourly.index)
     den = pd.Series(0.0, index=hourly.index)
     used = False
@@ -59,7 +61,13 @@ def conditions_hourly(hourly: pd.DataFrame, species: str, profile: FeedingProfil
         used = True
     if not used:
         return None
-    return (num / den.where(den > 0)).astype(float)
+    out = (num / den.where(den > 0)).astype(float)
+    for name, ex in profile.condition_limiting.items():
+        col = f"ff_{species}_{name}"
+        if col in hourly and ex > 0:
+            v = pd.to_numeric(hourly[col], errors="coerce")
+            out = out.where(v.isna(), out * (v / LIMIT_KNEE).clip(0.2, 1) ** ex)
+    return out
 
 
 def component_frame(grid: pd.DatetimeIndex, *, lat: float, lon: float, environment: str, exposure_class: str,

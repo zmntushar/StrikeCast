@@ -183,6 +183,8 @@ def narrative(row: pd.Series, species: str, spot: Spot) -> str:
 def tactic(row: pd.Series, species: str) -> str:
     t = species_meta(species).get("tactics", {})
     phase = row.get("light_phase")
+    if row.get("blitz_level") in ("alert", "watch") and row.get("blitz_species") == species and "blitz" in t:
+        return t["blitz"]
     if (row.get("nearshore_wave_ft") or 0) > 4 and "rough" in t:
         return t["rough"]
     if species == "striped_bass" and str(row.get("bait_top")) == "adult_bunker" and (row.get("bait_index") or 0) > 60:
